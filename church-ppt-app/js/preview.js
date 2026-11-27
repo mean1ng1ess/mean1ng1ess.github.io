@@ -62,6 +62,7 @@ function drawParas(ctx, box, paras, align, anchor, spacing, k, shrink) {
       const yy = cy + it.lh / 2;
       const st = it.p.style;
       if (st.shadow) { ctx.fillStyle = "rgba(0,0,0,.65)"; ctx.fillText(ln, tx + Math.max(1, 2 * k), yy + Math.max(1, 2 * k)); }
+      if (st.glow) { ctx.save(); ctx.shadowColor = "rgba(255,255,255,.45)"; ctx.shadowBlur = 10 * k; ctx.fillStyle = st.color; ctx.fillText(ln, tx, yy); ctx.restore(); }
       if (st.outline) { ctx.lineWidth = Math.max(1, st.outlineWidth * k * 2); ctx.strokeStyle = st.outlineColor; ctx.lineJoin = "round"; ctx.strokeText(ln, tx, yy); }
       ctx.fillStyle = st.color;
       ctx.fillText(ln, tx, yy);
@@ -77,7 +78,8 @@ export function paintSlide(canvas, spec, d, onAsync) {
   const k = canvas.width / W;
   ctx.fillStyle = d.bgColor;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
-  const img = bgImage(d.bgImage, onAsync);
+  const useCard = spec && spec.kind === "cover" && spec.card && d.cardImage;
+  const img = bgImage(useCard ? d.cardImage : d.bgImage, onAsync);
   if (img) {
     const tr = canvas.width / canvas.height, ir = img.naturalWidth / img.naturalHeight;
     let sx = 0, sy = 0, sw = img.naturalWidth, sh = img.naturalHeight;
@@ -85,8 +87,18 @@ export function paintSlide(canvas, spec, d, onAsync) {
     ctx.drawImage(img, sx, sy, sw, sh, 0, 0, canvas.width, canvas.height);
     if (d.bgDim) { ctx.fillStyle = `rgba(0,0,0,${Math.min(90, d.bgDim) / 100})`; ctx.fillRect(0, 0, canvas.width, canvas.height); }
   }
-  if (!spec || spec.kind === "blank") return;
   const R = (x, y, w, h) => [x * k, y * k, w * k, h * k];
+  if (d.footerText) drawParas(ctx, R(W / 2 - 162, H - 40, 324, 29), [{ text: d.footerText, style: d.footerStyle, size: d.footerStyle.size }], "center", "middle", 1, k, false);
+  if (!spec || spec.kind === "blank") return;
+  if (useCard) {
+    const sx = W / 960;
+    drawParas(ctx, R(139 * sx, 166, 683 * sx, 80), [{ text: spec.heading || "", style: d.cardTitleStyle, size: d.cardTitleStyle.size }], "center", "middle", 1, k, d.autoShrink);
+    ctx.fillStyle = "#fff";
+    ctx.fillRect(...R(319 * sx, 267, 322 * sx, 3.6));
+    const sub = (spec.subtitle || "").split("\n").filter((x) => x.trim());
+    if (sub.length) drawParas(ctx, R(139 * sx, 292, 683 * sx, 61 * sub.length), sub.map((t) => ({ text: t.trim(), style: d.cardSubStyle, size: d.cardSubStyle.size })), "center", "top", 1, k, d.autoShrink);
+    return;
+  }
   const mx = W * d.margin, my = W * d.margin * 0.75;
   const X = mx, Y = my, BW = W - 2 * mx, BH = H - 2 * my;
   if (spec.kind === "lyrics") {
@@ -102,13 +114,14 @@ export function paintSlide(canvas, spec, d, onAsync) {
     for (const ln of (spec.subtitle || "").split("\n")) if (ln.trim()) paras.push({ text: ln.trim(), style: d.bodyStyle, size: d.bodyStyle.size * 0.8 });
     drawParas(ctx, R(X, Y, BW, BH), paras, "center", "middle", 1.15, k, d.autoShrink);
   } else {
+    const align = spec.hint === "scripture" && d.scriptureAlign ? d.scriptureAlign : d.contentAlign;
     let bodyTop = Y;
     if (spec.heading) {
-      drawParas(ctx, R(X, Y, BW, BH * 0.17), [{ text: spec.heading, style: d.headingStyle, size: d.headingStyle.size }], d.contentAlign, "middle", 1, k, d.autoShrink);
+      drawParas(ctx, R(X, Y, BW, BH * 0.17), [{ text: spec.heading, style: d.headingStyle, size: d.headingStyle.size }], align, "middle", 1, k, d.autoShrink);
       bodyTop = Y + BH * 0.21;
     }
     drawParas(ctx, R(X, bodyTop, BW, Y + BH - bodyTop), spec.lines.map((t) => ({ text: t, style: d.bodyStyle, size: d.bodyStyle.size })),
-      d.contentAlign, spec.heading ? "top" : "middle", d.lineSpacing, k, d.autoShrink);
+      align, spec.heading ? "top" : "middle", d.lineSpacing, k, d.autoShrink);
   }
 }
 

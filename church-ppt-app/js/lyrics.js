@@ -81,7 +81,7 @@ export function parseOrder(text) {
     raw = [];
     for (let tok of s.split(/\s+/)) {
       tok = tok.replace(/^-+|-+$/g, "");
-      if (raw.length && /^\d+$/.test(tok)) raw[raw.length - 1] += ` ${tok}`;
+      if (raw.length && (/^\d+$/.test(tok) || (/^[A-Z]$/.test(tok) && /^part$/i.test(raw[raw.length - 1])))) raw[raw.length - 1] += ` ${tok}`;
       else raw.push(tok);
     }
   }

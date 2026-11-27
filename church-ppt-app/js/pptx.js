@@ -7,6 +7,7 @@ function runOpts(style, size) {
   const o = { fontFace: style.font, fontSize: Math.max(6, Math.round(size * 10) / 10), color: hex(style.color), bold: !!style.bold };
   if (style.outline) o.outline = { size: style.outlineWidth, color: hex(style.outlineColor) };
   if (style.shadow) o.shadow = { type: "outer", color: "000000", opacity: 0.7, blur: 4, offset: 2, angle: 45 };
+  if (style.glow) o.glow = { size: 10, opacity: 0.13, color: hex(style.color) };
   return o;
 }
 
@@ -35,6 +36,10 @@ export function drawSlide(pptx, slide, spec, d) {
     if (d.bgDim > 0) slide.addShape(pptx.ShapeType.rect, { x: 0, y: 0, w: W, h: H, fill: { color: "000000", transparency: 100 - Math.min(90, d.bgDim) }, line: { type: "none" } });
   } else slide.background = { color: hex(d.bgColor) };
   if (spec.notes) slide.addNotes(spec.notes);
+  if (d.footerText) {
+    const fs = d.footerStyle;
+    addText(slide, [W / 2 - 2.25, H - 0.55, 4.5, 0.4], [{ text: d.footerText, style: fs, size: fs.size }], "center", "middle", 1, false);
+  }
   if (spec.kind === "blank") return;
 
   const mx = W * d.margin, my = W * d.margin * 0.75;
@@ -56,17 +61,29 @@ export function drawSlide(pptx, slide, spec, d) {
       d.lyricsAlign, valign[d.lyricsAnchor] || "middle", d.lineSpacing, d.autoShrink);
     return;
   }
+  if (spec.kind === "cover" && spec.card && d.cardImage) {
+    // 순서 카드: 십자가 배경 + 제목 / 흰 줄 / 이름  (원래 PPT 의 위치 그대로, 13.33in 기준)
+    const sx = W / 13.333;
+    slide.background = { data: d.cardImage };
+    const ts = d.cardTitleStyle, ss = d.cardSubStyle;
+    addText(slide, [1.93 * sx, 2.3, 9.48 * sx, 1.11], [{ text: spec.heading || "", style: ts, size: ts.size }], "center", "middle", 1, d.autoShrink);
+    slide.addShape(pptx.ShapeType.roundRect, { x: 4.43 * sx, y: 3.71, w: 4.47 * sx, h: 0.05, fill: { color: "FFFFFF" }, line: { type: "none" }, rectRadius: 0.02 });
+    const sub = (spec.subtitle || "").split("\n").filter((x) => x.trim());
+    if (sub.length) addText(slide, [1.93 * sx, 4.06, 9.48 * sx, 0.84 * sub.length], sub.map((t) => ({ text: t.trim(), style: ss, size: ss.size })), "center", "top", 1, d.autoShrink);
+    return;
+  }
   if (spec.kind === "cover") {
     const paras = [{ text: spec.heading || "", style: d.titleStyle, size: d.titleStyle.size }];
     for (const ln of (spec.subtitle || "").split("\n")) if (ln.trim()) paras.push({ text: ln.trim(), style: d.bodyStyle, size: d.bodyStyle.size * 0.8 });
     addText(slide, [X, Y, BW, BH], paras, "center", "middle", 1.15, d.autoShrink);
     return;
   }
-  // content
+  // content  (성경 본문은 정렬을 따로 정할 수 있음)
+  const align = spec.hint === "scripture" && d.scriptureAlign ? d.scriptureAlign : d.contentAlign;
   let bodyTop = Y;
   if (spec.heading) {
     const hs = d.headingStyle;
-    addText(slide, [X, Y, BW, BH * 0.17], [{ text: spec.heading, style: hs, size: hs.size }], d.contentAlign, "middle", 1, d.autoShrink);
+    addText(slide, [X, Y, BW, BH * 0.17], [{ text: spec.heading, style: hs, size: hs.size }], align, "middle", 1, d.autoShrink);
     bodyTop = Y + BH * 0.21;
   }
   const bs = d.bodyStyle;
@@ -75,7 +92,7 @@ export function drawSlide(pptx, slide, spec, d) {
     if (m) return { text: m[2], style: bs, size: bs.size, prefix: { text: m[1], style: { ...d.headingStyle, outline: bs.outline }, size: bs.size * 0.65 } };
     return { text: ln, style: bs, size: bs.size };
   });
-  addText(slide, [X, bodyTop, BW, Y + BH - bodyTop], paras, d.contentAlign, spec.heading ? "top" : "middle", d.lineSpacing, d.autoShrink);
+  addText(slide, [X, bodyTop, BW, Y + BH - bodyTop], paras, align, spec.heading ? "top" : "middle", d.lineSpacing, d.autoShrink);
 }
 
 // PptxGenJS 는 같은 이름의 구역을 하나로 합치므로, 다시 나오는 Chorus 등은 "(2)" 를 붙인다.
