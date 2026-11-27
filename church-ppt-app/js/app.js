@@ -153,10 +153,12 @@ function renderOrder(main) {
       <button data-add="text">+ 광고</button>
       <button data-add="cover">+ 순서</button>
     </div>
+    <button class="wide primary" id="aiBulk">🤖 이번 주 찬양 한 번에 채우기 (제목 + 찬양팀)</button>
     <button class="big go" id="makeAll">▶ 예배 전체 PPT 만들기</button>
     <p class="hint">Verse / Chorus / Bridge 가 PowerPoint <b>구역(섹션)</b>으로 나뉘어 만들어집니다.</p>`;
   $("#svcName").oninput = (e) => { state.service.name = e.target.value; persist(); };
   if ($("#tplReset")) $("#tplReset").onclick = resetServiceFromTpl;
+  $("#aiBulk").onclick = aiBulk;
   main.querySelectorAll("[data-add]").forEach((b) => (b.onclick = () => addItem(b.dataset.add)));
   main.querySelectorAll(".card").forEach((card) => {
     const id = card.dataset.id;
@@ -442,6 +444,7 @@ async function shrinkImage(file, maxW, q) {
 
 // ---- 도움말
 function renderHelp(main) {
+  setTimeout(() => { const b = $("#aiSetup"); if (b) b.onclick = () => aiKeyDialog(); }, 0);
   main.innerHTML = `<div class="help">
     <h3>⛪ 우리 교회 PPT 틀로 만들기 (추천)</h3>
     <p>1. [디자인] → <b>[교회 PPT 틀 넣기]</b> 에서 교회 PPT 파일을 한 번 고릅니다. (휴대폰 안에만 저장)<br>
@@ -449,6 +452,11 @@ function renderHelp(main) {
     &nbsp;&nbsp;· 📌 항목(예배가 곧 시작됩니다, 사도신경, 대표기도·봉독·설교 카드, 말씀, 봉헌, 축도, 광고, 마침)은 <b>원래 슬라이드 그대로</b> — 눌러서 이번 주 이름·설교 제목·광고 글자만 고치세요.<br>
     &nbsp;&nbsp;· 🎵 찬양을 눌러 <b>[📚 보관함에서 고르기]</b> 로 이번 주 곡으로 바꾸세요.<br>
     3. [▶ 예배 전체 PPT 만들기] — 구역(섹션)도 교회 PPT 처럼 <code>곡(v1)</code> <code>곡(c)</code> 로 나뉩니다.</p>
+    <h3>🤖 무료 AI 로 가사 자동 채우기</h3>
+    <p>찬양 제목과 찬양팀만 넣으면 AI(Google Gemini, 무료)가 인터넷에서 가사를 찾아 Verse/Chorus 로 나눠 줍니다.
+    처음 한 번 무료 키가 필요합니다 (Google 계정으로 1분, 카드 등록 없음). 하루 무료 사용량 안에서 무료입니다.<br>
+    <button class="wide primary" id="aiSetup">🔑 무료 AI 키 설정하기 ${getAiKey() ? "(설정됨 ✅)" : ""}</button>
+    · AI 가 가끔 저작권 때문에 가사를 안 보여주거나 틀릴 수 있습니다. 그럴 땐 네이버 검색 → 붙여넣기를 쓰세요.</p>
     <h3>📱 홈 화면에 앱으로 설치</h3>
     <p><b>안드로이드(크롬/삼성 인터넷)</b>: 메뉴 ⋮ → <b>홈 화면에 추가</b> 또는 <b>앱 설치</b><br>
     <b>아이폰(사파리)</b>: 아래 공유 버튼 □↑ → <b>홈 화면에 추가</b></p>
@@ -470,7 +478,7 @@ function renderHelp(main) {
 
 // ------------------------------------------------------------------ 편집 화면
 const FIELDS = {
-  song: [["title", "찬양 제목", "예: 주 은혜임을"], ["artist", "아티스트 (선택)", ""]],
+  song: [["title", "찬양 제목", "예: 주 은혜임을"], ["artist", "찬양팀 / 아티스트", "예: 마커스, 어노인팅, 제이어스"]],
   scripture: [["reference", "본문 구절", "예: 요한복음 3:16-18"], ["translation", "번역본", "개역개정"]],
   sermon: [["title", "설교 제목", ""], ["preacher", "설교자", "예: 김OO 목사"], ["reference", "본문", "예: 요한복음 3:16"]],
   text: [["title", "제목", "예: 교회 소식, 사도신경"]],
@@ -498,6 +506,7 @@ function renderEditor() {
       ${FIELDS[it.kind].map(([k, label, ph]) => `<label class="field"><span>${label}</span><input data-f="${k}" value="${esc(it.data[k])}" placeholder="${esc(ph)}"></label>`).join("")}
       ${it.kind === "song" ? `
         <div class="grid3">
+          <button class="primary" data-a="ai">🤖 AI 가사 자동 채우기</button>
           <button class="primary" data-a="lib">📚 보관함에서 고르기</button>
           <button class="primary" data-a="search">🔍 가사 검색</button>
           <button class="primary" data-a="paste">📋 붙여넣기+나누기</button>
@@ -561,7 +570,7 @@ function drawEditorPreview(it) {
 }
 
 function applySong(it, song, keepTitle = false) {
-  const d = songData(song, it.data.title);
+  const d = { ...songData(song, it.data.title), tplLead: it.data.tplLead, tplClosing: it.data.tplClosing };
   if (keepTitle && it.data.title) d.title = it.data.title;
   if (!d.artist) d.artist = it.data.artist;
   it.data = d;
@@ -592,6 +601,7 @@ function autoSplit(it, raw) {
 async function editorAction(it, a) {
   const d = it.data;
   if (a === "lib") return pickFromLibrary(it);
+  if (a === "ai") return aiFill(it);
   if (a === "search") {
     if (!d.title.trim()) return toast("먼저 찬양 제목을 입력해 주세요.");
     naver(`${d.title} ${d.artist || ""} 가사`);
@@ -733,6 +743,115 @@ function pickFromLibrary(it) {
   box.querySelector("input").oninput = (e) => draw(e.target.value);
   box.querySelector("button.wide:last-child").onclick = () => box.remove();
   document.body.appendChild(box);
+}
+
+// ------------------------------------------------------------------ 무료 AI (Gemini)
+const getAiKey = () => { try { return localStorage.getItem("cppt.geminiKey") || ""; } catch { return ""; } };
+
+function aiKeyDialog(then) {
+  const box = document.createElement("div");
+  box.className = "pick";
+  box.innerHTML = `<div>
+    <h3>🔑 무료 AI 키 설정 (처음 한 번)</h3>
+    <p class="hint">1. 아래 [키 만드는 곳 열기] → Google 계정으로 로그인<br>
+    2. <b>Create API key (API 키 만들기)</b> 를 누르고 만들어진 키를 <b>복사</b><br>
+    3. 여기로 돌아와 붙여넣고 [저장]<br>
+    카드 등록 없이 무료입니다. 키는 이 휴대폰 안에만 저장됩니다.</p>
+    <button class="wide" id="kOpen">🌐 키 만드는 곳 열기</button>
+    <label class="field"><span>AI 키</span><input id="kIn" placeholder="AIza..." value="${esc(getAiKey())}" autocomplete="off"></label>
+    <div class="row2"><button class="primary" id="kSave">저장</button><button id="kClose">닫기</button></div>
+    <p id="kMsg" class="info"></p></div>`;
+  document.body.appendChild(box);
+  box.querySelector("#kOpen").onclick = () => window.open("https://aistudio.google.com/apikey", "_blank");
+  box.querySelector("#kClose").onclick = () => box.remove();
+  box.querySelector("#kSave").onclick = async () => {
+    const k = box.querySelector("#kIn").value.trim();
+    const msg = box.querySelector("#kMsg");
+    if (!k) { msg.textContent = "키를 붙여넣어 주세요."; return; }
+    msg.textContent = "확인하는 중...";
+    const G = await import("./gemini.js");
+    try {
+      const model = await G.testKey(k);
+      G.setKey(k);
+      msg.textContent = `✅ 연결 성공 (${model})`;
+      setTimeout(() => { box.remove(); if (state.tab === "help") render(); if (then) then(); }, 700);
+    } catch (e) { msg.textContent = "❌ " + (e.message || e); }
+  };
+}
+
+async function aiFill(it) {
+  const d = it.data;
+  if (!d.title.trim()) return toast("먼저 찬양 제목을 입력해 주세요.");
+  if (!getAiKey()) return aiKeyDialog(() => aiFill(it));
+  if (!confirmReplace(it)) return;
+  const G = await import("./gemini.js");
+  busy(`'${d.title}' 가사를 AI 가 찾는 중... (10~30초)`);
+  try {
+    const song = await G.findLyrics(d.title.trim(), (d.artist || "").trim());
+    busy();
+    applySong(it, song, true);
+    keepInLibrary(it, true);
+    alert("가사를 채웠습니다.\n\n⚠ AI 결과는 틀릴 수 있으니 한 번 확인해 주세요.");
+  } catch (e) {
+    busy();
+    if (e.kind === "key") return aiKeyDialog(() => aiFill(it));
+    if (confirm(`${e.message}\n\n네이버에서 가사 검색을 열까요? (복사 → [붙여넣기+나누기])`)) naver(`${d.title} ${d.artist || ""} 가사`);
+  }
+}
+
+function aiBulk() {
+  if (!getAiKey()) return aiKeyDialog(aiBulk);
+  const songItems = state.service.items.filter((it) => it.kind === "song");
+  const box = document.createElement("div");
+  box.className = "pick";
+  box.innerHTML = `<div>
+    <h3>🤖 이번 주 찬양 한 번에 채우기</h3>
+    <p class="hint">한 줄에 한 곡씩 <b>제목 / 찬양팀</b> 으로 적으세요. 예배 순서의 🎵 찬양 자리에 <b>위에서부터 차례로</b> 들어갑니다${songItems.length ? ` (지금 ${songItems.length}자리)` : ""}. 자리가 모자라면 뒤에 추가합니다.</p>
+    <textarea id="bulkIn" rows="8" placeholder="나는 예배자 입니다 / 어노인팅\n새 힘 얻으리 / 마커스\n믿음 따라 / 제이어스"></textarea>
+    <div class="row2"><button class="primary" id="bulkGo">AI 로 채우기</button><button id="bulkClose">닫기</button></div></div>`;
+  document.body.appendChild(box);
+  box.querySelector("#bulkClose").onclick = () => box.remove();
+  box.querySelector("#bulkGo").onclick = async () => {
+    const lines = box.querySelector("#bulkIn").value.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (!lines.length) return;
+    box.remove();
+    const G = await import("./gemini.js");
+    const ok = [], fail = [];
+    let slot = 0;
+    for (let i = 0; i < lines.length; i++) {
+      const [title, team = ""] = lines[i].split(/\s*[\/|]\s*|\s+-\s+/);
+      busy(`(${i + 1}/${lines.length}) '${title}' 찾는 중...`);
+      try {
+        const song = await G.findLyrics(title, team);
+        const items = state.service.items;
+        const slots = items.filter((it) => it.kind === "song");
+        let it = slots[slot++];
+        if (it) applySongSilently(it, song);
+        else {
+          it = { id: uid(), kind: "song", data: songData(song, title) };
+          const lastSong = items.lastIndexOf(slots[slots.length - 1]);
+          if (lastSong >= 0) items.splice(lastSong + 1, 0, it); else items.push(it);
+        }
+        state.library[song.title] = L.songToText(song);
+        ok.push(song.title);
+      } catch (e) {
+        if (e.kind === "key" || e.kind === "limit") { fail.push(`${title} (${e.message})`); break; }
+        fail.push(`${title} (${e.message})`);
+        slot++;
+      }
+      persist();
+      if (i < lines.length - 1) await new Promise((r) => setTimeout(r, 1500));   // 무료 사용량 보호
+    }
+    busy();
+    render();
+    alert(`완료: ${ok.length}곡${ok.length ? "\n· " + ok.join("\n· ") : ""}` +
+      (fail.length ? `\n\n못 찾은 곡 (네이버 검색 → 붙여넣기로 넣어 주세요):\n· ${fail.join("\n· ")}` : "") +
+      "\n\n⚠ AI 결과는 틀릴 수 있으니 PPT 만들기 전에 한 번 확인해 주세요.");
+  };
+}
+
+function applySongSilently(it, song) {
+  it.data = { ...songData(song, it.data.title), tplLead: it.data.tplLead, tplClosing: it.data.tplClosing };
 }
 
 // ------------------------------------------------------------------ 시작
