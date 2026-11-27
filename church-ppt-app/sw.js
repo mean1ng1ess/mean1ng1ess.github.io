@@ -1,7 +1,7 @@
 // 오프라인용: 앱 파일을 저장해 두고, 인터넷이 없어도 열리게 한다.
-const VERSION = "cppt-v11";
+const VERSION = "cppt-v12";
 const APP = ["./", "index.html", "app.css", "manifest.webmanifest", "js/app.js", "js/lyrics.js", "js/slides.js",
-  "js/pptx.js", "js/preview.js", "js/ocr.js", "js/pptimport.js", "js/template.js", "js/gemini.js", "vendor/jszip.min.js", "fonts/NanumSquareNeoTTF-bRg.woff2", "fonts/NanumSquareNeoTTF-cBd.woff2", "vendor/pptxgen.bundle.js", "vendor/tesseract.min.js",
+  "js/pptx.js", "js/preview.js", "js/ocr.js", "js/pptimport.js", "js/template.js", "js/gemini.js", "js/bible.js", "vendor/jszip.min.js", "fonts/NanumSquareNeoTTF-bRg.woff2", "fonts/NanumSquareNeoTTF-cBd.woff2", "vendor/pptxgen.bundle.js", "vendor/tesseract.min.js",
   "vendor/tesseract-worker.min.js", "icons/icon-192.png", "icons/icon-512.png", "assets/connection-cross.jpg"];
 
 self.addEventListener("install", (e) => {

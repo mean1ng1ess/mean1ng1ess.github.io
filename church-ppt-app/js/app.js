@@ -3,6 +3,7 @@ import * as L from "./lyrics.js";
 import * as S from "./slides.js";
 import { buildPptx } from "./pptx.js";
 import { thumb } from "./preview.js";
+import * as B from "./bible.js";
 
 const $ = (sel, el = document) => el.querySelector(sel);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -563,8 +564,9 @@ function renderEditor() {
           <button data-a="ppt">📄 이 곡만 PPT</button>
         </div>
         <label class="field"><span>순서(송폼) — 예: V1 C V2 C B C (비우면 적힌 순서대로)</span><input data-f="order" value="${esc(it.data.order)}"></label>` : ""}
-      ${it.kind === "scripture" ? `<div class="row2"><button class="primary" data-a="bibleAi">📖 본문 찾아 채우기 (AI)</button><label class="field" style="margin:0"><select data-f="perSlide">${[1, 2, 3, 4, 5].map((n) => `<option value="${n}" ${String(it.data.perSlide || 3) === String(n) ? "selected" : ""}>한 장에 ${n}절</option>`).join("")}</select></label></div>
-        <button class="wide" data-a="bible">🔍 구글에서 본문 검색</button><p class="hint">검색된 본문을 복사해서 아래에 붙여넣으세요. 앞에 절 번호를 쓰면 작게 표시됩니다.</p>` : ""}
+      ${it.kind === "scripture" ? `<div class="row2"><button class="primary" data-a="bible">📖 성서공회에서 열기</button><button class="primary" data-a="biblePaste">📋 복사한 본문 넣기</button></div>
+        <div class="row2">${getAiKey() ? `<button data-a="bibleAi">🤖 AI로 찾기</button>` : "<span></span>"}<label class="field" style="margin:0"><select data-f="perSlide">${[1, 2, 3, 4, 5].map((n) => `<option value="${n}" ${String(it.data.perSlide || 3) === String(n) ? "selected" : ""}>한 장에 ${n}절</option>`).join("")}</select></label></div>
+        <p class="hint">① [성서공회에서 열기] → 본문을 길게 눌러 복사 → ② 돌아와서 [복사한 본문 넣기]. 입력한 구절만 골라서 넣습니다. (AI 키 필요 없음)</p>` : ""}
       ${it.kind === "cover" ? `
         <p class="hint">빠른 입력 (순서 카드)</p>
         <div class="grid3">${["예배가 곧 시작됩니다.|기도로 예배를 준비 해주세요.|0", "대표 기도|", "성경 봉독|", "설교|", "봉헌|", "봉헌 기도|", "축   도|", "광   고|총무", "결단 찬양|"]
@@ -734,7 +736,18 @@ async function editorAction(it, a) {
   } else if (a === "ppt") makePpt([it], d.title || "찬양");
   else if (a === "bible") {
     if (!d.reference.trim()) return toast("본문 구절을 입력해 주세요. (예: 요한복음 3:16-18)");
-    webSearch(`${d.reference} ${d.translation || ""}`);
+    openBible(d.reference, (d.translation || "").trim() || load("cppt.translation", "개역개정"));
+  } else if (a === "biblePaste") {
+    const ref = B.parseRef(d.reference);
+    if (!ref) return toast("본문 구절을 먼저 바르게 입력해 주세요. (예: 요 3:16-18, 사도행전 6장 1-7절)", 5000);
+    let text = "";
+    try { text = await navigator.clipboard.readText(); } catch { /* 권한 없음 */ }
+    if (!text.trim()) text = d.text || "";
+    const vs = B.versesFromCopied(text, ref);
+    if (!vs.length) return toast("복사한 글에서 절을 찾지 못했어요. 본문 칸에 길게 눌러 붙여넣은 뒤 다시 눌러 주세요.", 6000);
+    d.text = vs.map((v) => `${v.v} ${v.text}`).join("\n");
+    persist(); renderEditor();
+    toast(`${B.refLabel(ref.book, vs)} · ${vs.length}절을 넣었습니다.${missingNote(ref, vs)}`, 6000);
   } else if (a === "sunday") { d.date = nextSunday(); persist(); renderEditor(); }
 }
 
@@ -808,7 +821,7 @@ function renderFixedEditor(it, ed) {
   $("#edBack").onclick = closeEditor;
   if (!a) return;
   $("#fxSkip").onchange = (e) => { it.data.skip = e.target.checked; persist(); };
-  if ($("#scrGo")) bindScriptureBox(it, () => renderEditor());
+  if ($("#scrOpen")) bindScriptureBox(it, () => renderEditor());
   ed.querySelectorAll("textarea[data-sid]").forEach((ta) => (ta.oninput = () => {
     it.data.edits = it.data.edits || {};
     const e = (it.data.edits[ta.dataset.sid] = it.data.edits[ta.dataset.sid] || {});
@@ -847,26 +860,77 @@ function scriptureBoxHtml(scr) {
   const tr = (scr && scr.translation) || load("cppt.translation", "개역개정");
   const per = (scr && scr.perSlide) || 3;
   return `<div class="tplBox">
-    <b>📖 말씀 본문 자동으로 채우기</b>
+    <b>📖 말씀 본문 채우기</b>
     <label class="field"><span>본문 (예: 사도행전 6:1-7, 행 6장 1-7절)</span><input id="scrRef" value="${esc((scr && scr.ref) || "")}" placeholder="사도행전 6:1-7"></label>
     <div class="row2">
       <label class="field"><span>번역본</span><select id="scrTr">${TRANS.map((t) => `<option ${t === tr ? "selected" : ""}>${t}</option>`).join("")}</select></label>
       <label class="field"><span>한 장에 몇 절</span><select id="scrPer">${[1, 2, 3, 4, 5].map((n) => `<option value="${n}" ${n === per ? "selected" : ""}>${n}절</option>`).join("")}</select></label>
     </div>
-    <button class="wide primary" id="scrGo">🔍 본문 찾아서 채우기 (AI)</button>
-    ${scr && scr.verses ? `<label class="field"><span>찾은 본문 — ${esc(scr.label || "")} (틀린 곳은 고치세요, 한 줄에 '장:절 본문')</span>
+    <div class="row2"><button class="primary" id="scrOpen">① 성서공회에서 열기</button><button class="primary" id="scrPasteBtn">② 복사한 본문 넣기</button></div>
+    <p class="hint">성서공회 성경 페이지가 열리면 본문을 길게 눌러 <b>전체 복사</b> → 돌아와서 ②를 누르세요. 입력한 구절만 골라 ${per}절씩 나눠 넣습니다. AI 키 필요 없어요.</p>
+    <label class="field"><span>(②가 안 되면 여기에 길게 눌러 붙여넣기)</span><textarea id="scrPaste" rows="2" placeholder="여기에 붙여넣기"></textarea></label>
+    ${getAiKey() ? `<button class="wide" id="scrGo">🤖 AI로 찾아서 채우기</button>` : ""}
+    ${scr && scr.verses ? `<label class="field"><span>들어갈 본문 — ${esc(scr.label || "")} (틀린 곳은 고치세요, 한 줄에 '장:절 본문')</span>
       <textarea id="scrText" rows="8">${esc(scr.verses.map((v) => `${v.c}:${v.v} ${v.text}`).join("\n"))}</textarea></label>
-      <button class="wide" id="scrClear">자동 채우기 끄기 (원래 슬라이드로)</button>` : `<p class="hint">찾은 본문이 ${per}절씩 원래 말씀 슬라이드 모양(표)으로 들어가고, '성경 봉독' 카드의 구절도 바뀝니다.</p>`}
+      <button class="wide" id="scrClear">본문 채우기 끄기 (원래 슬라이드로)</button>` : `<p class="hint">본문이 원래 말씀 슬라이드 모양(표)으로 들어가고, '성경 봉독' 카드의 구절도 바뀝니다.</p>`}
   </div>`;
+}
+
+// 성서공회 성경 페이지 열기 (성서공회에 없는 번역본은 구글 검색)
+function openBible(refText, tr) {
+  const ref = B.parseRef(refText);
+  if (!ref) { toast("구절을 알아보지 못했어요. 예: 사도행전 6:1-7, 요 3:16, 시 23편", 5000); return null; }
+  if (B.BSK_VERSIONS[tr]) {
+    window.open(B.bskUrl(ref, tr), "_blank");
+    if (ref.c2 > ref.c1) toast(`${ref.c1}장을 열었습니다. ${ref.c2}장까지 이어지면 다음 장도 복사해서 한 번 더 넣어 주세요.`, 7000);
+  } else webSearch(`${refText} ${tr}`);
+  return ref;
+}
+
+function missingNote(ref, vs) {
+  if (ref.v1 == null || ref.c1 !== ref.c2) return "";
+  const want = ref.v2 - ref.v1 + 1;
+  return vs.length < want ? ` (${want - vs.length}절이 빠졌어요 — 그 부분도 복사해서 넣어 주세요)` : "";
 }
 
 function bindScriptureBox(it, rerender) {
   $("#scrTr").onchange = (e) => save("cppt.translation", e.target.value);
   $("#scrPer").onchange = (e) => { if (it.data.scripture) { it.data.scripture.perSlide = +e.target.value; persist(); } };
-  $("#scrGo").onclick = async () => {
+  $("#scrOpen").onclick = () => {
+    const refText = $("#scrRef").value.trim();
+    if (!refText) return toast("본문을 입력해 주세요. (예: 사도행전 6:1-7)");
+    save("cppt.translation", $("#scrTr").value);
+    openBible(refText, $("#scrTr").value);
+  };
+  const apply = (text) => {
+    const refText = $("#scrRef").value.trim();
+    const ref = B.parseRef(refText);
+    if (!ref) return toast("본문 칸에 구절을 바르게 입력해 주세요. (예: 사도행전 6:1-7)", 5000);
+    let vs = B.versesFromCopied(text, ref);
+    if (!vs.length) return toast("복사한 글에서 절 번호를 찾지 못했어요. 성경 본문을 절 번호까지 같이 복사해 주세요.", 6000);
+    const tr = $("#scrTr").value, per = +$("#scrPer").value;
+    const old = it.data.scripture;
+    if (old && old.ref === refText && old.translation === tr && ref.c2 > ref.c1) {   // 여러 장: 이어 붙이기
+      const m = new Map(old.verses.map((v) => [`${v.c}:${v.v}`, v]));
+      for (const v of vs) m.set(`${v.c}:${v.v}`, v);
+      vs = [...m.values()].sort((a, b) => a.c - b.c || a.v - b.v);
+    }
+    const label = B.refLabel(ref.book, vs);
+    it.data.scripture = { ref: refText, translation: tr, perSlide: per, book: ref.book, verses: vs, label };
+    setReadingCard(label);
+    persist(); rerender();
+    toast(`${label} · ${vs.length}절을 넣었습니다.${missingNote(ref, vs)}`, 6000);
+  };
+  $("#scrPasteBtn").onclick = async () => {
+    let text = "";
+    try { text = await navigator.clipboard.readText(); } catch { /* 권한 없음 */ }
+    if (!text.trim()) { $("#scrPaste").focus(); return toast("복사한 글을 읽지 못했어요. 아래 칸을 길게 눌러 붙여넣어 주세요.", 5000); }
+    apply(text);
+  };
+  $("#scrPaste").oninput = (e) => { if (e.target.value.trim().length > 5) apply(e.target.value); };
+  if ($("#scrGo")) $("#scrGo").onclick = async () => {
     const ref = $("#scrRef").value.trim();
     if (!ref) return toast("본문을 입력해 주세요. (예: 사도행전 6:1-7)");
-    if (!getAiKey()) return aiKeyDialog(() => $("#scrGo").click());
     const tr = $("#scrTr").value, per = +$("#scrPer").value;
     save("cppt.translation", tr);
     busy(`${ref} (${tr}) 본문을 찾는 중...`);
@@ -882,7 +946,7 @@ function bindScriptureBox(it, rerender) {
     } catch (e) {
       busy();
       if (e.kind === "key") return aiKeyDialog();
-      if (confirm(`${e.message}\n\n구글에서 본문을 검색할까요?`)) webSearch(`${ref} ${tr}`);
+      if (confirm(`${e.message}\n\n성서공회 페이지를 열까요?`)) openBible(ref, tr);
     }
   };
   const ta = $("#scrText");
