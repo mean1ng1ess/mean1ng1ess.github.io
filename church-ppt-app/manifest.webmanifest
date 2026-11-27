@@ -1,0 +1,16 @@
+{
+  "name": "교회 PPT 메이커",
+  "short_name": "교회 PPT",
+  "description": "찬양 가사를 Verse/Chorus/Bridge 로 나눠 예배 PPT 를 만드는 앱",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F4F6FA",
+  "theme_color": "#1F4FD8",
+  "lang": "ko",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
