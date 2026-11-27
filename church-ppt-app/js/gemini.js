@@ -113,6 +113,49 @@ export async function findLyrics(title, team, { key = getKey(), fetchFn = fetch 
   return song;
 }
 
+const SPLIT_PROMPT = (title, raw) => `교회 예배 PPT 자막용으로 아래 찬양 가사를 파트별로 정리해 주세요. (검색하지 말고 아래 가사만 쓰세요)
+${title ? `찬양 제목: ${title}\n` : ""}
+규칙:
+- 단어를 바꾸거나 더하거나 빼지 마세요. 줄바꿈만 화면에 보기 좋게 (한 줄 8~18글자) 다듬어도 됩니다.
+- 곡의 구조를 보고 파트를 정하세요. 반복된다고 무조건 Chorus 가 아닙니다:
+  · 곡의 중심 메시지/제목이 들어 있고 여러 번 반복되는 부분 = Chorus
+  · 이야기가 진행되며 매번 가사가 다른 부분 = Verse 1, Verse 2 ...
+  · Chorus 바로 앞에서 고조시키는 짧은 부분 = Pre-Chorus
+  · 곡 후반에 한 번 나오는 새로운 부분 = Bridge,  끝에 반복하는 짧은 마무리 = Tag
+  · 같은 Verse 를 두 번 부르면 Verse 로 두고 순서에 두 번 적으세요.
+- 파트 이름: Verse 1, Verse 2, Verse 3, Pre-Chorus, Chorus, Chorus 2, Bridge, Tag, Intro, Outro, Ending
+- 같은 파트는 한 번만 쓰고, 부르는 순서(반복 포함)는 '순서' 줄에 적으세요.
+- 코드(G, Am7), x2, 출처 같은 줄은 빼세요.
+- 파트 구분이 없는 곡(기도문 등)이면 [ ] 머리말 없이 가사만 쓰세요.
+- 아래 형식의 <song> 블록 하나만 답하세요.
+
+<song>
+제목: ${title || "(제목)"}
+순서: Verse 1, Chorus, Verse 2, Chorus, Bridge, Chorus
+
+[Verse 1]
+가사
+</song>
+
+가사:
+${raw}`;
+
+// 붙여넣은 가사를 AI 가 Verse/Chorus/Bridge 로 정리 (단어는 그대로)
+export async function splitLyrics(raw, title = "", { key = getKey(), fetchFn = fetch } = {}) {
+  if (!key) throw new AiError("AI 키가 없습니다.", "key");
+  const model = await pickModel(key, fetchFn);
+  const data = await call(`models/${model}:generateContent`, key, {
+    contents: [{ role: "user", parts: [{ text: SPLIT_PROMPT(title, raw) }] }],
+    generationConfig: { temperature: 0.1 },
+  }, fetchFn);
+  const m = /<song>([\s\S]*?)<\/song>/.exec(textOf(data));
+  if (!m) throw new AiError("AI 가 가사를 나누지 못했습니다.", "notfound");
+  const song = parseSongText(m[1].trim());
+  if (!song.sections.length) throw new AiError("AI 가 가사를 나누지 못했습니다.", "notfound");
+  if (title) song.title = title;
+  return song;
+}
+
 export async function testKey(key, fetchFn = fetch) {
   try { localStorage.removeItem(MODEL); } catch { /* 무시 */ }
   return pickModel(key, fetchFn);

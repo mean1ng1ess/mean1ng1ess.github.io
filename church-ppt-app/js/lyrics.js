@@ -152,6 +152,9 @@ export function parseBody(text) {
   return sections.filter((s) => s.lines.length || s.label);
 }
 
+// 가사 중간에 넣는 '빈 화면' 슬라이드 표시 (앞뒤 빈 줄로 따로 한 장)
+export const BLANK_LINE = "(빈 화면)";
+
 export function emptySong() { return { title: "", artist: "", key: "", order: [], sections: [] }; }
 
 export function parseSongText(text) {
@@ -349,4 +352,96 @@ export async function readTextFile(file) {
   catch { /* 아래로 */ }
   try { return new TextDecoder("euc-kr").decode(buf); } catch { /* 아래로 */ }
   return new TextDecoder("utf-8").decode(buf);
+}
+
+// ---------------------------------------------------------------- 교회 가사 모음 파일 (여러 형식)
+// · 첫 줄 <제목>
+// · 파트 머리말: [Verse] [Chorus (목소리)] / Verse 1 / 1절 / 그리고 글자만 있는 줄 a, b, A, c, v1, p
+// · 같은 파트를 여러 번 적어 둔 파일은 한 번만 남기고 부르는 순서는 '순서' 로
+const LETTER_RE = /^([A-Za-z])(\d?)$/;
+const LETTER_PART = { v: "Verse", c: "Chorus", b: "Bridge", p: "Pre-Chorus", t: "Tag", i: "Intro", o: "Outro", e: "Ending" };
+
+export function songFromAnyTxt(text, fallbackTitle = "") {
+  const all = text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").split("\n")
+    .map((l) => l.replace(/[\u200b\u200c\u200d\u2060]/g, ""))
+    .map((l) => (/^\s*[-=_~]+\s*$/.test(l) ? "" : l));   // -, ----- 같은 구분선 = 빈 줄
+  if (all.slice(0, 6).some((l) => META_RE.test(l))) return parseSongText(all.join("\n"));   // 앱 형식 (제목: ...)
+  let title = "";
+  let i = 0;
+  while (i < all.length && !all[i].trim()) i++;
+  const first = i < all.length ? all[i].trim() : "";
+  const tm = /^<\s*(.+?)\s*>$/.exec(first);
+  const sq = (x) => x.replace(/[\s_?？!.]/g, "").toLowerCase();
+  if (tm) { title = tm[1].replace(/[?？]\s*$/, "").trim(); i++; }
+  else if (first && fallbackTitle && (sq(first) === sq(fallbackTitle) || sq(fallbackTitle).startsWith(sq(first)))) { title = first; i++; }
+  const lines = all.slice(i);
+  title = title || fallbackTitle;
+  const letterHeads = lines.filter((l) => LETTER_RE.test(l.trim()));
+  const numHeads = lines.filter((l) => /^\d{1,2}\.?$/.test(l.trim()));
+  const isHead = (t) => LETTER_RE.test(t) || (numHeads.length >= 1 && /^\d{1,2}\.?$/.test(t)) || isHeaderLine(t.replace(/\.+$/, ""));
+  const hasHeads = letterHeads.length > 0 || numHeads.length > 0 || lines.some((l) => isHead(l.trim()));
+  if (!hasHeads) {
+    // 파트 이름 없이 부르는 순서대로 적은 파일: 적힌 그대로 (빈 줄 = 슬라이드 넘김)
+    const song = emptySong();
+    song.title = title;
+    const ls = trimBlanks(lines.map((l) => l.trim()));
+    while (ls.length && ls[0] === "") ls.shift();
+    if (ls.length) song.sections = [{ label: "", lines: ls }];
+    return song;
+  }
+  // 글자 머리말이 알파벳 순서(a,b,c,d)인지, v/c/b/p 약자인지
+  const codes = letterHeads.map((l) => l.trim().toLowerCase());
+  const alphabetic = codes.some((c) => /^[a-z]$/.test(c) && !LETTER_PART[c]) || codes.includes("a");
+  const labelOf = (line) => {
+    const t = line.trim().replace(/\.+$/, "");
+    if (/^\d{1,2}$/.test(t)) return `Verse ${+t}`;
+    const m = LETTER_RE.exec(t);
+    if (m) {
+      if (alphabetic) return `Part ${m[1].toUpperCase()}${m[2]}`;
+      const name = LETTER_PART[m[1].toLowerCase()];
+      return name ? (m[2] ? `${name} ${m[2]}` : name) : `Part ${t.toUpperCase()}`;
+    }
+    return normalizeLabel(t);
+  };
+  // 순서대로 파트 모으기
+  const occ = [];
+  let cur = null;
+  for (const l of lines) {
+    const t = l.trim();
+    if (t && isHead(t)) { cur = { label: labelOf(t), lines: [] }; occ.push(cur); continue; }
+    if (!cur) { if (!t) continue; cur = { label: "", lines: [] }; occ.push(cur); }
+    cur.lines.push(t);
+  }
+  for (const o of occ) { o.lines = trimBlanks(o.lines); while (o.lines[0] === "") o.lines.shift(); }
+  // 첫 머리말 앞에 적힌 가사 = 첫 Verse
+  if (occ.length > 1 && !occ[0].label) occ[0].label = occ.some((o) => /^Verse 1$/.test(o.label)) ? "Verse" : (occ.some((o) => o.label === "Verse") ? "Verse 1" : "Verse");
+  const sections = [], order = [];
+  const byKey = new Map();
+  const baseCount = {};
+  for (const o of occ) {
+    if (!o.lines.length) continue;
+    const body = o.lines.join("\n");
+    const k = `${o.label}\u0000${body}`;
+    if (byKey.has(k)) { order.push(byKey.get(k)); continue; }
+    // 같은 이름인데 가사가 다르면 번호: Verse -> Verse 1, Verse 2
+    const base = o.label;
+    baseCount[base] = (baseCount[base] || 0) + 1;
+    let label = base;
+    if (base && baseCount[base] > 1) {
+      const first = sections.find((s) => s.base === base && !/\d$/.test(s.label));
+      if (first && !/\d$/.test(base)) first.label = `${base} 1`;
+      label = /\d$/.test(base) ? `${base}-${baseCount[base]}` : `${base} ${baseCount[base]}`;
+      for (let n = 0; n < order.length; n++) if (first && order[n] === base) order[n] = `${base} 1`;
+    }
+    sections.push({ label, lines: o.lines, base });
+    byKey.set(k, label);
+    order.push(label);
+  }
+  const song = emptySong();
+  song.title = title;
+  song.sections = sections.map(({ label, lines: ls }) => ({ label, lines: ls }));
+  const uniq = song.sections.map((s) => s.label);
+  song.order = order.join("|") === uniq.join("|") ? [] : order;
+  if (song.sections.length === 1 && !song.sections[0].label) song.order = [];
+  return song;
 }

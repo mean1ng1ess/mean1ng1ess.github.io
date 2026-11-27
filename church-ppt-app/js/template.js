@@ -4,7 +4,7 @@
 //     원래 슬라이드를 그대로 복사한다 (영상·사진·표·효과 포함). 이번 주에 바뀌는 글자만 고칠 수 있다.
 //   · 찬양 구역은 새 곡으로 바꾼다. 원래 PPT 의 '곡 제목 슬라이드'와 '가사 슬라이드'를 복제해서 글자만 바꾼다.
 // PPT 파일은 휴대폰 안(IndexedDB)에만 저장된다.
-import { chunkLines, resolveOrder } from "./lyrics.js";
+import { BLANK_LINE, chunkLines, resolveOrder } from "./lyrics.js";
 import { itemToSong, sectionName } from "./slides.js";
 import { songsFromPptx } from "./pptimport.js";
 
@@ -155,6 +155,7 @@ const isSpecial = (doc) => els(doc, "p", "pic").length > 0 || els(doc, "p", "gra
 
 // 교회 PPT 방식 구역 이름: 곡(v1) 곡(c) 곡(b) 곡(p) / 알파벳 파트(A, B..)는 그대로
 function partSectionName(title, label, labels) {
+  label = label.replace(/\s*\([^()]*\)\s*$/, "") || label;   // "Tag (빌드업)" -> "Tag"
   const m = /^Part ([A-Z])$/.exec(label);
   if (m) return `${title}(${m[1]})`;
   if (label === "Verse 1" && !labels.includes("Verse 2")) return `${title}(v)`;
@@ -179,6 +180,15 @@ export async function analyzeTemplate(data) {
   let titleSlide = null, lyricSlide = null;
   z.sections.forEach((sec, i) => {
     const m = /^(.*?)\s*\(([^()]*)\)\s*$/.exec(sec.name);
+    const prev = blocks[blocks.length - 1];
+    if (!m && prev && prev.kind === "song" && sec.ids.length) {
+      // 괄호 없이 앞 곡에 이어지는 파트 ("나사는 동안~")
+      const fs = sec.ids.map((id) => fields(z.docs[id], z.footer));
+      const allLyric = fs.every((f) => f.length <= 1 && (!f[0] || (f[0].kind === "text" && f[0].value.split("\n").length <= 3))) && !sec.ids.some((id) => isSpecial(z.docs[id]));
+      const first = fs.find((f) => f.length);
+      const ownTitle = first && squash(first[0].value) === squash(sec.name);
+      if (allLyric && !ownTitle) return;
+    }
     const song = m || lyricLike(sec);
     if (!song) { blocks.push({ kind: "fixed", sectionIndex: i, name: sec.name }); return; }
     const title = m ? m[1].trim() : sec.name;
@@ -300,7 +310,7 @@ export async function buildFromTemplate(data, items, { linesPerSlide = 2 } = {})
           const t = await textSlide(titleSrc, [title]);
           order.push(t); ids.push(t.id);
         }
-        for (const chunk of slideChunks(part.lines, linesPerSlide)) { const s = await textSlide(analysis.lyricSlide, chunk); order.push(s); ids.push(s.id); }
+        for (const chunk of slideChunks(part.lines, linesPerSlide)) { const s = await textSlide(analysis.lyricSlide, chunk.length === 1 && chunk[0] === BLANK_LINE ? [] : chunk); order.push(s); ids.push(s.id); }
         if (closing && pi === parts.length - 1 && !lead.length) { const t = await textSlide(titleSrc, [title]); order.push(t); ids.push(t.id); }
         outSections.push({ name: part.label ? partSectionName(title, part.label, labels) : title, ids });
       }

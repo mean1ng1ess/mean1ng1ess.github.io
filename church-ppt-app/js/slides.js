@@ -1,5 +1,5 @@
 // 예배 순서 -> 슬라이드 목록, 디자인 기본값.  (윈도우 프로그램의 service.py / design.py 와 같은 규칙)
-import { chunkLines, labelAbbrev, parseBody, parseOrder, resolveOrder } from "./lyrics.js";
+import { BLANK_LINE, chunkLines, labelAbbrev, parseBody, parseOrder, resolveOrder } from "./lyrics.js";
 
 export const ITEM = { COVER: "cover", SONG: "song", SCRIPTURE: "scripture", SERMON: "sermon", TEXT: "text" };
 export const ITEM_LABELS = { cover: "표지·순서", song: "찬양", scripture: "성경", sermon: "설교", text: "광고/텍스트", fixed: "우리 교회 틀" };
@@ -121,6 +121,10 @@ export function songSlides(song, design, ids) {
       slides.push({ kind: "cover", section: name, sectionId: sid, heading: title, subtitle: "", lines: [], notes: `${title} | ${sec.label || "제목"}` });
     }
     for (const chunk of chunkLines(sec.lines, design.linesPerSlide)) {
+      if (chunk.length === 1 && chunk[0] === BLANK_LINE) {   // 가사 중간의 빈 화면
+        slides.push({ kind: "blank", section: name, sectionId: sid, lines: [] });
+        continue;
+      }
       slides.push({
         kind: "lyrics", section: name, sectionId: sid, heading: first && design.showSongTitle ? title : "",
         label: sec.label, lines: chunk, song: title, notes: sec.label ? `${title} | ${sec.label}` : title,

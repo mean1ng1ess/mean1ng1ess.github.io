@@ -73,6 +73,7 @@ export async function songsFromPptx(data, JSZip = globalThis.JSZip) {
 
   const songs = new Map();     // key -> {title, parts: Map(label -> lines), order, codes}
   const skipped = [];
+  let prevKey = null;   // 바로 앞 구역이 찬양이면 그 곡
   for (const sec of sections) {
     const m = /^(.*?)\s*\(([^()]*)\)\s*$/.exec(sec.name);
     const ss = sec.ids.map((id) => slides[id]).filter(Boolean);
@@ -83,8 +84,13 @@ export async function songsFromPptx(data, JSZip = globalThis.JSZip) {
       const plain = ss.filter((s) => !s.special && s.texts.length);
       const short = plain.filter((s) => s.texts.length <= 1 && s.texts.every((t) => t.length <= 3));
       const lyricLike = short.length >= 3 && short.length >= plain.length * 0.8;
-      if (!lyricLike) { skipped.push(sec.name); continue; }
-      title = sec.name; code = "";
+      // "나사는 동안~" 처럼 괄호 없이 이어지는 파트: 앞 곡의 한 파트
+      const firstText = plain[0] ? plain[0].texts.flat().filter(Boolean) : [];
+      const ownTitle = firstText.length === 1 && squash(firstText[0]) === squash(sec.name);
+      const continuation = prevKey && plain.length >= 1 && short.length === plain.length && !ownTitle && !ss.some((s) => s.special);
+      if (continuation) { title = songs.get(prevKey).title; code = sec.name; }
+      else if (!lyricLike) { skipped.push(sec.name); prevKey = null; continue; }
+      else { title = sec.name; code = ""; }
     }
     const key = squash(title);
     if (!songs.has(key)) songs.set(key, { title, sections: [], order: [] });
@@ -92,12 +98,14 @@ export async function songsFromPptx(data, JSZip = globalThis.JSZip) {
     const lines = [];
     for (const s of ss) {
       const text = s.texts.flat().filter(Boolean);
-      if (!text.length || s.special) continue;
+      if (s.special) continue;
+      if (!text.length) { if (lines.length) lines.push(""); lines.push("(빈 화면)"); continue; }   // 일부러 넣은 빈 슬라이드
       if (text.length === 1 && squash(text[0]) === key) { song.title = text[0]; continue; }   // 파트 시작 제목 슬라이드
       if (lines.length) lines.push("");
       lines.push(...text);
     }
     song.sections.push({ code, lines });
+    prevKey = key;
   }
 
   const result = [];

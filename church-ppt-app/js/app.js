@@ -154,11 +154,13 @@ function renderOrder(main) {
       <button data-add="cover">+ 순서</button>
     </div>
     <button class="wide primary" id="aiBulk">🤖 이번 주 찬양 한 번에 채우기 (제목 + 찬양팀)</button>
-    <button class="big go" id="makeAll">▶ 예배 전체 PPT 만들기</button>
+    <button class="big go" id="makeChurch">⛪ 목민 청년부 PPT 만들기</button>
+    <button class="wide" id="makeAll">다른 디자인으로 PPT 만들기</button>
     <p class="hint">Verse / Chorus / Bridge 가 PowerPoint <b>구역(섹션)</b>으로 나뉘어 만들어집니다.</p>`;
   $("#svcName").oninput = (e) => { state.service.name = e.target.value; persist(); };
   if ($("#tplReset")) $("#tplReset").onclick = resetServiceFromTpl;
   $("#aiBulk").onclick = aiBulk;
+  $("#makeChurch").onclick = makeChurchPpt;
   main.querySelectorAll("[data-add]").forEach((b) => (b.onclick = () => addItem(b.dataset.add)));
   main.querySelectorAll(".card").forEach((card) => {
     const id = card.dataset.id;
@@ -214,10 +216,10 @@ function renderLibrary(main) {
   const titles = Object.keys(state.library).sort((a, b) => a.localeCompare(b, "ko")).filter((t) => !q || t.replace(/\s/g, "").toLowerCase().includes(q));
   main.innerHTML = `
     <div class="row2">
-      <button class="primary" id="impTxt">📂 txt 가져오기</button>
+      <button class="primary" id="impTxt">📂 txt·zip 가져오기</button>
       <button class="primary" id="impPpt">📊 기존 PPT에서 가져오기</button>
     </div>
-    <button class="wide" id="expAll">💾 보관함 전체를 txt 로 내보내기</button>
+    <button class="wide" id="expAll">💾 보관함 전체 백업 (zip) — 다른 폰에서 [가져오기]</button>
     <p class="hint"><b>기존 PPT</b>: 구역 이름이 "곡 제목(v1)", "곡 제목(c)" 처럼 나뉜 PPT 에서 곡별 가사를 꺼내 옵니다 (슬라이드 나눔 그대로).<br>
       <b>txt</b>: 윈도우 프로그램이나 메모장으로 만든 가사 파일을 여러 개 한꺼번에 고를 수 있어요.
       [Verse 1] 처럼 나뉘어 있으면 그대로, 구분이 없으면 반복되는 부분을 Chorus 로 자동으로 나눕니다.</p>
@@ -254,21 +256,36 @@ const songData = (song, fallback = "") => ({
 });
 
 async function importTxt() {
-  const files = await pickFiles(".txt,text/plain", true);
+  const files = await pickFiles(".txt,.zip,text/plain,application/zip", true);
   if (!files.length) return;
-  let n = 0, auto = 0;
-  for (const f of files) {
-    const text = await L.readTextFile(f);
-    const wasStructured = L.isStructured(L.parseSongText(text));
-    const song = L.songFromTxt(text, f.name.replace(/\.txt$/i, ""));
-    if (!song.sections.length) continue;
-    if (!wasStructured && L.isStructured(song)) auto++;
+  busy("가사 파일을 읽는 중...");
+  const entries = [];   // [이름, 글자]
+  try {
+    for (const f of files) {
+      if (/\.zip$/i.test(f.name)) {
+        await loadScript("vendor/jszip.min.js", "JSZip");
+        const zip = await globalThis.JSZip.loadAsync(await f.arrayBuffer());
+        for (const z of Object.values(zip.files)) {
+          if (z.dir || !/\.txt$/i.test(z.name) || /(^|\/)(__MACOSX|\.)/.test(z.name)) continue;
+          const buf = await z.async("arraybuffer");
+          entries.push([z.name.split("/").pop(), await L.readTextFile(new Blob([buf]))]);
+        }
+      } else entries.push([f.name, await L.readTextFile(f)]);
+    }
+  } catch (e) { busy(); return alert("파일을 읽지 못했습니다.\n" + (e.message || e)); }
+  let n = 0, upd = 0;
+  for (const [name, text] of entries) {
+    const song = L.songFromAnyTxt(text, name.replace(/\.txt$/i, "").replace(/_+$/, "").trim());
+    if (!song.sections.length || !song.title) continue;
+    const old = findInLibrary(song.title);
+    if (old) { delete state.library[old.title]; upd++; }
     state.library[song.title] = L.songToText(song);
     n++;
   }
+  busy();
   persist();
   render();
-  toast(`${n}곡을 보관함에 넣었습니다.${auto ? ` (그중 ${auto}곡은 Verse/Chorus 자동 구분)` : ""}`, 5000);
+  toast(`${n}곡을 보관함에 넣었습니다.${upd ? ` (${upd}곡은 새 가사로 바꿈)` : ""}`, 5000);
 }
 
 function loadScript(src, globalName) {
@@ -306,11 +323,13 @@ async function importPpt() {
 async function exportAll() {
   const titles = Object.keys(state.library);
   if (!titles.length) return toast("보관함이 비어 있습니다.");
-  const files = titles.map((t) => new File([L.txtBlob(state.library[t])], `${L.safeFilename(t)}.txt`, { type: "text/plain" }));
-  if (navigator.canShare && navigator.canShare({ files })) {
-    try { await navigator.share({ files, title: "가사 파일" }); return; } catch (e) { if (e.name === "AbortError") return; }
-  }
-  for (const f of files) await shareOrDownload(f, f.name, "text/plain");
+  busy("보관함을 묶는 중...");
+  await loadScript("vendor/jszip.min.js", "JSZip");
+  const zip = new globalThis.JSZip();
+  for (const t of titles) zip.file(`${L.safeFilename(t)}.txt`, L.txtBlob(state.library[t]));
+  const blob = await zip.generateAsync({ type: "blob" });
+  busy();
+  await shareOrDownload(blob, `가사보관함_${today()}.zip`, "application/zip");
 }
 
 // ---- 디자인
@@ -492,7 +511,17 @@ const BODY = {
 };
 
 function openEditor(id) { state.editing = id; state.lastTouched = id; renderEditor(); $("#editor").classList.add("show"); }
-function closeEditor() { state.editing = null; $("#editor").classList.remove("show"); render(); }
+function closeEditor() {
+  const it = state.service.items.find((x) => x.id === state.editing);
+  if (it && it.kind === "song") {   // 편집한 곡은 자동으로 보관함에 (다음 주에도 쓰도록)
+    const song = S.itemToSong(it);
+    if (song.title && song.sections.length) {
+      const old = findInLibrary(song.title);
+      const text = L.songToText(song);
+      if (!old || state.library[old.title] !== text) { if (old) delete state.library[old.title]; state.library[song.title] = text; persist(); }
+    }
+  }
+  state.editing = null; $("#editor").classList.remove("show"); render(); }
 
 function renderEditor() {
   const it = state.service.items.find((x) => x.id === state.editing);
@@ -531,6 +560,8 @@ function renderEditor() {
     </div>`;
   $("#edBack").onclick = closeEditor;
   ed.querySelectorAll("[data-f]").forEach((inp) => (inp.oninput = () => { it.data[inp.dataset.f] = inp.value; persist(); schedulePv(it); }));
+  const team = ed.querySelector('[data-f="artist"]');
+  if (team) { team.setAttribute("autocomplete", "off"); attachTeamAutocomplete(team, (v) => { it.data.artist = v; persist(); }); }
   ed.querySelectorAll("[data-a]").forEach((b) => (b.onclick = () => editorAction(it, b.dataset.a)));
   ed.querySelectorAll("[data-quick]").forEach((b) => (b.onclick = () => {
     const [title, sub, card] = b.dataset.quick.split("|");
@@ -589,13 +620,26 @@ function keepInLibrary(it, quiet = false) {
 
 const confirmReplace = (it) => !(it.data.body || "").trim() || confirm("지금 가사를 새 가사로 바꿀까요?");
 
-function autoSplit(it, raw) {
-  const { sections, order } = L.autoStructure(L.cleanPastedLyrics(raw));
+async function autoSplit(it, raw) {
+  const clean = L.cleanPastedLyrics(raw);
   const song = S.itemToSong(it);
+  if (getAiKey()) {   // AI 가 곡 구조를 보고 Verse/Chorus/Bridge 를 정함
+    busy("AI 가 Verse / Chorus / Bridge 를 나누는 중...");
+    try {
+      const G = await import("./gemini.js");
+      const s = await G.splitLyrics(clean, it.data.title.trim());
+      busy();
+      song.sections = s.sections; song.order = s.order;
+      applySong(it, song, true);
+      toast("AI 가 파트를 나눴습니다. 틀린 곳은 직접 고쳐 주세요.", 4500);
+      return;
+    } catch (e) { busy(); toast(`AI 나누기 실패 (${e.message}) — 간단한 규칙으로 나눴습니다.`, 5000); }
+  }
+  const { sections, order } = L.autoStructure(clean);
   song.sections = sections;
   song.order = order.length ? order : song.order;
   applySong(it, song, true);
-  toast(sections.some((s) => s.label) ? "반복되는 부분을 Chorus 로 나눴습니다. 틀리면 직접 고쳐 주세요." : "반복이 없어 쭉 이어지는 가사로 두었습니다. (빈 줄 = 슬라이드 넘김)", 4500);
+  if (!getAiKey()) toast("간단한 규칙으로 나눴습니다. [도움말]에서 무료 AI 키를 넣으면 AI 가 곡 구조에 맞게 나눠 줍니다.", 6000);
 }
 
 async function editorAction(it, a) {
@@ -611,11 +655,11 @@ async function editorAction(it, a) {
     try { text = await navigator.clipboard.readText(); } catch { /* 권한 없음 */ }
     if (!text.trim()) return toast("복사된 글자를 읽지 못했어요. 가사 칸을 길게 눌러 붙여넣은 뒤 [자동 나누기] 를 누르세요.", 6000);
     if (!confirmReplace(it)) return;
-    autoSplit(it, text);
+    await autoSplit(it, text);
     if (d.title.trim()) keepInLibrary(it, true);
   } else if (a === "auto") {
     if (!(d.body || "").trim()) return toast("가사 칸에 가사를 먼저 넣어 주세요.");
-    autoSplit(it, d.body);
+    await autoSplit(it, d.body);
   } else if (a === "sheet") {
     const files = await pickFiles("image/*", true);
     if (!files.length || !confirmReplace(it)) return;
@@ -782,6 +826,12 @@ function aiKeyDialog(then) {
 async function aiFill(it) {
   const d = it.data;
   if (!d.title.trim()) return toast("먼저 찬양 제목을 입력해 주세요.");
+  const mine = findInLibrary(d.title);
+  if (mine) {   // 우리가 모아 둔 가사가 있으면 그것을 먼저
+    if (!confirmReplace(it)) return;
+    applySong(it, mine, false);
+    return toast(`가사 보관함의 '${mine.title}' 을(를) 넣었습니다.`);
+  }
   if (!getAiKey()) return aiKeyDialog(() => aiFill(it));
   if (!confirmReplace(it)) return;
   const G = await import("./gemini.js");
@@ -800,13 +850,13 @@ async function aiFill(it) {
 }
 
 function aiBulk() {
-  if (!getAiKey()) return aiKeyDialog(aiBulk);
   const songItems = state.service.items.filter((it) => it.kind === "song");
   const box = document.createElement("div");
   box.className = "pick";
   box.innerHTML = `<div>
     <h3>🤖 이번 주 찬양 한 번에 채우기</h3>
     <p class="hint">한 줄에 한 곡씩 <b>제목 / 찬양팀</b> 으로 적으세요. 예배 순서의 🎵 찬양 자리에 <b>위에서부터 차례로</b> 들어갑니다${songItems.length ? ` (지금 ${songItems.length}자리)` : ""}. 자리가 모자라면 뒤에 추가합니다.</p>
+    <p class="hint">가사 보관함에 있는 곡은 보관함 가사를 그대로 쓰고, 없는 곡만 AI 가 찾습니다.</p>
     <textarea id="bulkIn" rows="8" placeholder="나는 예배자 입니다 / 어노인팅\n새 힘 얻으리 / 마커스\n믿음 따라 / 제이어스"></textarea>
     <div class="row2"><button class="primary" id="bulkGo">AI 로 채우기</button><button id="bulkClose">닫기</button></div></div>`;
   document.body.appendChild(box);
@@ -822,7 +872,12 @@ function aiBulk() {
       const [title, team = ""] = lines[i].split(/\s*[\/|]\s*|\s+-\s+/);
       busy(`(${i + 1}/${lines.length}) '${title}' 찾는 중...`);
       try {
-        const song = await G.findLyrics(title, team);
+        let song = findInLibrary(title);
+        if (!song) {
+          if (!getAiKey()) throw Object.assign(new Error("보관함에 없음 · AI 키를 넣으면 찾아 드려요"), { kind: "nokey" });
+          song = await G.findLyrics(title, team);
+          if (i < lines.length - 1) await new Promise((r) => setTimeout(r, 1500));   // 무료 사용량 보호
+        }
         const items = state.service.items;
         const slots = items.filter((it) => it.kind === "song");
         let it = slots[slot++];
@@ -840,7 +895,6 @@ function aiBulk() {
         slot++;
       }
       persist();
-      if (i < lines.length - 1) await new Promise((r) => setTimeout(r, 1500));   // 무료 사용량 보호
     }
     busy();
     render();
@@ -854,9 +908,132 @@ function applySongSilently(it, song) {
   it.data = { ...songData(song, it.data.title), tplLead: it.data.tplLead, tplClosing: it.data.tplClosing };
 }
 
+// ------------------------------------------------------------------ 보관함에서 같은 곡 찾기 (띄어쓰기 무시)
+function findInLibrary(title) {
+  const k = (title || "").replace(/\s+/g, "").toLowerCase();
+  if (!k) return null;
+  const t = Object.keys(state.library).find((x) => x.replace(/\s+/g, "").toLowerCase() === k);
+  return t ? { ...L.parseSongText(state.library[t]), title: t } : null;
+}
+
+// ------------------------------------------------------------------ 찬양팀 자동완성
+const TEAMS = ["마커스워십", "어노인팅", "제이어스 (J-US)", "위러브 (WELOVE)", "예수전도단", "디사이플스", "피아워십 (F.I.A)",
+  "아이자야씩스티원", "레위지파", "히즈윌", "시와그림", "다윗의장막", "캠퍼스워십", "원펠로우십", "오버플로우", "꿈이있는자유",
+  "소리엘", "뉴젠워십", "팀룩워십", "예람워십", "브리지임팩트", "김복유", "소진영", "심형진", "천관웅", "홍이삭", "조수아",
+  "어노인팅 예배캠프", "아침", "옹기장이", "좋은씨앗", "주리", "강명식", "최인혁", "Hillsong Worship", "Hillsong United",
+  "Elevation Worship", "Bethel Music", "Maverick City Music", "Planetshakers", "Jesus Culture", "Chris Tomlin", "Passion"];
+const CHO = "ㄱㄲㄴㄷㄸㄹㅁㅂㅃㅅㅆㅇㅈㅉㅊㅋㅌㅍㅎ";
+const chosung = (s) => [...s].map((c) => { const o = c.charCodeAt(0) - 0xac00; return o >= 0 && o < 11172 ? CHO[Math.floor(o / 588)] : c; }).join("");
+const norm = (s) => s.replace(/[\s()]/g, "").toLowerCase();
+function teamSuggestions(q) {
+  const lib = Object.values(state.library).map((t) => (/^\s*(아티스트|가수)\s*[:：]\s*(.+)$/m.exec(t) || [])[2]).filter(Boolean);
+  const all = [...new Set([...lib.map((x) => x.trim()), ...TEAMS])];
+  const n = norm(q), c = chosung(n);
+  if (!n) return [];
+  const score = (t) => { const a = norm(t); if (a.startsWith(n)) return 0; if (chosung(a).startsWith(c)) return 1; if (a.includes(n)) return 2; return 9; };
+  return all.map((t) => [score(t), t]).filter(([sc]) => sc < 9).sort((a, b) => a[0] - b[0] || a[1].localeCompare(b[1], "ko")).slice(0, 8).map(([, t]) => t);
+}
+function attachTeamAutocomplete(input, onPick) {
+  const wrap = document.createElement("div");
+  wrap.className = "ac";
+  input.parentNode.insertBefore(wrap, input.nextSibling);
+  let items = [], idx = -1;
+  const draw = () => {
+    wrap.innerHTML = items.map((t, i) => `<div class="${i === idx ? "on" : ""}" data-i="${i}">${esc(t)}</div>`).join("");
+    wrap.style.display = items.length ? "block" : "none";
+    wrap.querySelectorAll("[data-i]").forEach((d) => (d.onmousedown = (e) => { e.preventDefault(); pick(+d.dataset.i); }));
+  };
+  const pick = (i) => { if (!items[i]) return; input.value = items[i].replace(/\s*\(.*\)$/, ""); items = []; idx = -1; draw(); onPick(input.value); };
+  input.addEventListener("input", () => { items = teamSuggestions(input.value); idx = items.length ? 0 : -1; draw(); });
+  input.addEventListener("keydown", (e) => {
+    if (!items.length) return;
+    if (e.key === "ArrowDown") { e.preventDefault(); idx = (idx + 1) % items.length; draw(); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); idx = (idx - 1 + items.length) % items.length; draw(); }
+    else if (e.key === "Enter") { e.preventDefault(); pick(idx < 0 ? 0 : idx); }
+    else if (e.key === "Escape") { items = []; draw(); }
+  });
+  input.addEventListener("blur", () => setTimeout(() => { items = []; draw(); }, 150));
+}
+
+// ------------------------------------------------------------------ 목민 청년부 PPT (기본 틀, 앱에 들어 있음)
+const CHURCH = { name: "목민 청년부 PPT", url: "church/mokmin.pptx" };
+
+async function ensureChurchTemplate() {
+  if (tpl.data) return true;
+  busy("목민 청년부 PPT 틀을 받는 중... (처음 한 번, 약 25MB)");
+  try {
+    const res = await fetch(CHURCH.url);
+    if (!res.ok) throw new Error("틀 파일을 받지 못했습니다.");
+    const data = await res.arrayBuffer();
+    const T = await tplModule();
+    const analysis = await T.analyzeTemplate(data);
+    await T.saveTemplate(CHURCH.name, data);
+    Object.assign(tpl, { name: CHURCH.name, data, analysis });
+    for (const b of analysis.blocks) if (b.kind === "song" && b.song && !findInLibrary(b.song.title)) state.library[b.song.title] = L.songToText(b.song);
+    busy();
+    return true;
+  } catch (e) { busy(); alert((e.message || e) + "\n인터넷 연결을 확인해 주세요."); return false; }
+}
+
+// 지금 넣은 찬양을 목민 청년부 틀의 찬양 자리에 차례로 넣는다
+async function fitServiceToChurch() {
+  const T = await tplModule();
+  const frame = T.serviceFromTemplate(tpl.analysis, uid);
+  const mySongs = state.service.items.filter((it) => it.kind === "song" && S.itemToSong(it).sections.length);
+  const slots = frame.filter((it) => it.kind === "song");
+  mySongs.forEach((s, i) => {
+    if (slots[i]) slots[i].data = { ...s.data, tplLead: slots[i].data.tplLead, tplClosing: slots[i].data.tplClosing };
+    else { const last = frame.lastIndexOf(slots[slots.length - 1]); frame.splice(last + 1 + (i - slots.length), 0, s); }
+  });
+  state.service.items = frame;
+  persist();
+}
+
+async function makeChurchPpt() {
+  if (!(await ensureChurchTemplate())) return;
+  if (!hasFixed()) {
+    const n = state.service.items.filter((it) => it.kind === "song").length;
+    if (!confirm(`예배 순서를 목민 청년부 PPT 구성(예배 시작 · 사도신경 · 찬양 · 대표기도 · 말씀 · 봉헌 · 축도 · 광고 · 마침)으로 맞출까요?${n ? `\n지금 넣은 찬양 ${n}곡은 찬양 자리에 차례로 들어갑니다.` : ""}`)) return;
+    await fitServiceToChurch();
+    render();
+    toast("목민 청년부 구성으로 맞췄습니다. 📌 항목(기도자·설교·광고)을 확인하고 다시 누르세요.", 6000);
+    return;
+  }
+  const empty = state.service.items.filter((it) => it.kind === "song" && !S.itemToSong(it).sections.length).map((it) => it.data.title || "(제목 없음)");
+  if (empty.length && !confirm(`가사가 비어 있는 찬양이 있습니다:\n· ${empty.join("\n· ")}\n\n그래도 만들까요?`)) return;
+  makePpt(state.service.items, state.service.name);
+}
+
+// ------------------------------------------------------------------ 기본 가사 보관함 (목민 청년부 가사 모음, 앱에 들어 있음)
+const hashText = (t) => { let h = 0; for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) | 0; return h; };
+async function loadBuiltinLibrary() {
+  try {
+    const res = await fetch("lyrics/library.json", { cache: "no-cache" });
+    if (!res.ok) return;
+    const { version, songs } = await res.json();
+    const prev = load("cppt.builtin", { version: "", hashes: {} });
+    if (prev.version === version) return;
+    let added = 0, updated = 0;
+    for (const [title, text] of Object.entries(songs)) {
+      const mine = findInLibrary(title);
+      if (!mine) { state.library[title] = text; added++; continue; }
+      const cur = state.library[mine.title];
+      // 휴대폰에서 직접 고친 곡은 그대로 두고, 예전 기본 가사 그대로인 곡만 새 가사로
+      if (cur !== text && prev.hashes[mine.title] === hashText(cur)) { delete state.library[mine.title]; state.library[title] = text; updated++; }
+      else if (!prev.version && cur !== text) { delete state.library[mine.title]; state.library[title] = text; updated++; }
+    }
+    const hashes = {};
+    for (const [title, text] of Object.entries(songs)) hashes[title] = hashText(text);
+    save("cppt.builtin", { version, hashes });
+    persist();
+    if (added || updated) { toast(`목민 청년부 가사 모음: ${added}곡 추가${updated ? `, ${updated}곡 새 가사` : ""}`, 5000); render(); }
+  } catch { /* 오프라인 등 */ }
+}
+
 // ------------------------------------------------------------------ 시작
 document.querySelectorAll("nav button").forEach((b) => (b.onclick = () => { state.tab = b.dataset.tab; render(); window.scrollTo(0, 0); }));
 render();
 loadTpl();
+loadBuiltinLibrary();
 if (document.fonts) document.fonts.load('bold 20px "NanumSquare Neo Regular"').then(() => render()).catch(() => {});
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
