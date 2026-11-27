@@ -87,7 +87,7 @@ async function shareOrDownload(blob, filename, mime) {
   a.click();
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
 }
-const naver = (q) => window.open("https://search.naver.com/search.naver?query=" + encodeURIComponent(q), "_blank");
+const webSearch = (q) => window.open("https://www.google.com/search?q=" + encodeURIComponent(q), "_blank");
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 
 async function makePpt(items, name) {
@@ -456,12 +456,12 @@ function renderHelp(main) {
     <p>찬양 제목과 찬양팀만 넣으면 AI(Google Gemini, 무료)가 인터넷에서 가사를 찾아 Verse/Chorus 로 나눠 줍니다.
     처음 한 번 무료 키가 필요합니다 (Google 계정으로 1분, 카드 등록 없음). 하루 무료 사용량 안에서 무료입니다.<br>
     <button class="wide primary" id="aiSetup">🔑 무료 AI 키 설정하기 ${getAiKey() ? "(설정됨 ✅)" : ""}</button>
-    · AI 가 가끔 저작권 때문에 가사를 안 보여주거나 틀릴 수 있습니다. 그럴 땐 네이버 검색 → 붙여넣기를 쓰세요.</p>
+    · AI 가 가끔 저작권 때문에 가사를 안 보여주거나 틀릴 수 있습니다. 그럴 땐 구글 검색 → 붙여넣기를 쓰세요.</p>
     <h3>📱 홈 화면에 앱으로 설치</h3>
     <p><b>안드로이드(크롬/삼성 인터넷)</b>: 메뉴 ⋮ → <b>홈 화면에 추가</b> 또는 <b>앱 설치</b><br>
     <b>아이폰(사파리)</b>: 아래 공유 버튼 □↑ → <b>홈 화면에 추가</b></p>
     <h3>🎵 찬양 가사 넣기 (모두 무료)</h3>
-    <p>1. [+ 찬양] → 제목 입력 → <b>[🔍 가사 검색]</b> (네이버가 열려요)<br>
+    <p>1. [+ 찬양] → 제목 입력 → <b>[🔍 가사 검색]</b> (구글이 열려요)<br>
     2. 가사를 길게 눌러 복사 → 돌아와서 <b>[📋 붙여넣기 + 자동 나누기]</b><br>
     3. 반복되는 부분은 Chorus, 나머지는 Verse 로 나뉩니다. 반복이 없으면 쭉 이어지는 가사로 둡니다.<br>
     · <b>[🎼 악보 사진]</b>: 카메라로 찍으면 가사를 읽어요. 띄어쓰기·몇 글자는 꼭 고쳐 주세요.<br>
@@ -604,7 +604,7 @@ async function editorAction(it, a) {
   if (a === "ai") return aiFill(it);
   if (a === "search") {
     if (!d.title.trim()) return toast("먼저 찬양 제목을 입력해 주세요.");
-    naver(`${d.title} ${d.artist || ""} 가사`);
+    webSearch(`${d.title} ${d.artist || ""} 가사`);
     toast("가사를 길게 눌러 복사한 뒤, 돌아와서 [붙여넣기 + 자동 나누기] 를 누르세요.", 6000);
   } else if (a === "paste") {
     let text = "";
@@ -640,7 +640,7 @@ async function editorAction(it, a) {
   } else if (a === "ppt") makePpt([it], d.title || "찬양");
   else if (a === "bible") {
     if (!d.reference.trim()) return toast("본문 구절을 입력해 주세요. (예: 요한복음 3:16-18)");
-    naver(`${d.reference} ${d.translation || ""}`);
+    webSearch(`${d.reference} ${d.translation || ""}`);
   } else if (a === "sunday") { d.date = nextSunday(); persist(); renderEditor(); }
 }
 
@@ -795,7 +795,7 @@ async function aiFill(it) {
   } catch (e) {
     busy();
     if (e.kind === "key") return aiKeyDialog(() => aiFill(it));
-    if (confirm(`${e.message}\n\n네이버에서 가사 검색을 열까요? (복사 → [붙여넣기+나누기])`)) naver(`${d.title} ${d.artist || ""} 가사`);
+    if (confirm(`${e.message}\n\n구글에서 가사 검색을 열까요? (복사 → [붙여넣기+나누기])`)) webSearch(`${d.title} ${d.artist || ""} 가사`);
   }
 }
 
@@ -845,7 +845,7 @@ function aiBulk() {
     busy();
     render();
     alert(`완료: ${ok.length}곡${ok.length ? "\n· " + ok.join("\n· ") : ""}` +
-      (fail.length ? `\n\n못 찾은 곡 (네이버 검색 → 붙여넣기로 넣어 주세요):\n· ${fail.join("\n· ")}` : "") +
+      (fail.length ? `\n\n못 찾은 곡 (구글 검색 → 붙여넣기로 넣어 주세요):\n· ${fail.join("\n· ")}` : "") +
       "\n\n⚠ AI 결과는 틀릴 수 있으니 PPT 만들기 전에 한 번 확인해 주세요.");
   };
 }
