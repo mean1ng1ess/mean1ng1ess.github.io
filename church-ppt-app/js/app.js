@@ -564,9 +564,10 @@ function renderEditor() {
           <button data-a="ppt">📄 이 곡만 PPT</button>
         </div>
         <label class="field"><span>순서(송폼) — 예: V1 C V2 C B C (비우면 적힌 순서대로)</span><input data-f="order" value="${esc(it.data.order)}"></label>` : ""}
-      ${it.kind === "scripture" ? `<div class="row2"><button class="primary" data-a="bible">📖 성서공회에서 열기</button><button class="primary" data-a="biblePaste">📋 복사한 본문 넣기</button></div>
+      ${it.kind === "scripture" ? `<button class="wide primary" data-a="bibleAuto">📖 본문 자동으로 채우기</button>
+        <div class="row2"><button data-a="bible">성서공회에서 열기</button><button data-a="biblePaste">📋 복사한 본문 넣기</button></div>
         <div class="row2">${getAiKey() ? `<button data-a="bibleAi">🤖 AI로 찾기</button>` : "<span></span>"}<label class="field" style="margin:0"><select data-f="perSlide">${[1, 2, 3, 4, 5].map((n) => `<option value="${n}" ${String(it.data.perSlide || 3) === String(n) ? "selected" : ""}>한 장에 ${n}절</option>`).join("")}</select></label></div>
-        <p class="hint">① [성서공회에서 열기] → 본문을 길게 눌러 복사 → ② 돌아와서 [복사한 본문 넣기]. 입력한 구절만 골라서 넣습니다. (AI 키 필요 없음)</p>` : ""}
+        <p class="hint">구절만 넣고 [본문 자동으로 채우기] — 인터넷 없이도 됩니다. 또는 성서공회 페이지에서 복사해서 [복사한 본문 넣기].</p>` : ""}
       ${it.kind === "cover" ? `
         <p class="hint">빠른 입력 (순서 카드)</p>
         <div class="grid3">${["예배가 곧 시작됩니다.|기도로 예배를 준비 해주세요.|0", "대표 기도|", "성경 봉독|", "설교|", "봉헌|", "봉헌 기도|", "축   도|", "광   고|총무", "결단 찬양|"]
@@ -681,6 +682,16 @@ async function editorAction(it, a) {
   const d = it.data;
   if (a === "lib") return pickFromLibrary(it);
   if (a === "ai") return aiFill(it);
+  if (a === "bibleAuto") {
+    const tr = (d.translation || "").trim() || load("cppt.translation", "개역개정");
+    const r = await autoScripture(d.reference, tr);
+    if (!r) return;
+    d.reference = B.refLabel(r.ref.book, r.verses).replace(/(\d+)장 /, "$1:").replace(/절$/, "").replace(/ - (\d+)장 /, "-$1:");
+    d.translation = r.translation;
+    d.text = r.verses.map((v) => `${v.v} ${v.text}`).join("\n");
+    persist(); renderEditor();
+    return toast(`${r.verses.length}절을 넣었습니다. (${r.translation})`);
+  }
   if (a === "bibleAi") {
     const ref = (d.reference || "").trim();
     if (!ref) return toast("본문 구절을 입력해 주세요. (예: 사도행전 6:1-7)");
@@ -866,14 +877,70 @@ function scriptureBoxHtml(scr) {
       <label class="field"><span>번역본</span><select id="scrTr">${TRANS.map((t) => `<option ${t === tr ? "selected" : ""}>${t}</option>`).join("")}</select></label>
       <label class="field"><span>한 장에 몇 절</span><select id="scrPer">${[1, 2, 3, 4, 5].map((n) => `<option value="${n}" ${n === per ? "selected" : ""}>${n}절</option>`).join("")}</select></label>
     </div>
-    <div class="row2"><button class="primary" id="scrOpen">① 성서공회에서 열기</button><button class="primary" id="scrPasteBtn">② 복사한 본문 넣기</button></div>
-    <p class="hint">성서공회 성경 페이지가 열리면 본문을 길게 눌러 <b>전체 복사</b> → 돌아와서 ②를 누르세요. 입력한 구절만 골라 ${per}절씩 나눠 넣습니다. AI 키 필요 없어요.</p>
-    <label class="field"><span>(②가 안 되면 여기에 길게 눌러 붙여넣기)</span><textarea id="scrPaste" rows="2" placeholder="여기에 붙여넣기"></textarea></label>
+    <button class="wide primary" id="scrAuto">📖 본문 자동으로 채우기</button>
+    <p class="hint">구절만 넣고 누르면 ${per}절씩 원래 말씀 슬라이드에 들어갑니다. 인터넷 없이도 됩니다 (개역한글 내장 · 다른 번역본은 성경 파일을 한 번 넣으면).</p>
+    <details><summary>성서공회에서 복사해서 넣기</summary>
+    <div class="row2"><button id="scrOpen">① 성서공회에서 열기</button><button id="scrPasteBtn">② 복사한 본문 넣기</button></div>
+    <p class="hint">성서공회 페이지에서 본문을 길게 눌러 복사 → 돌아와서 ②. 입력한 구절만 골라 넣습니다.</p>
+    <label class="field"><span>(②가 안 되면 여기에 길게 눌러 붙여넣기)</span><textarea id="scrPaste" rows="2" placeholder="여기에 붙여넣기"></textarea></label></details>
+    <details><summary>성경 파일 넣기 (개역개정 등)</summary><p class="hint">가지고 있는 성경 txt 파일(한 줄에 '창1:1 태초에...')을 넣으면 위에서 고른 번역본으로 이 폰 안에만 저장되고, 인터넷 없이 자동으로 채워집니다.</p>
+      <button class="wide" id="scrFile">📂 성경 파일 넣기</button></details>
     ${getAiKey() ? `<button class="wide" id="scrGo">🤖 AI로 찾아서 채우기</button>` : ""}
     ${scr && scr.verses ? `<label class="field"><span>들어갈 본문 — ${esc(scr.label || "")} (틀린 곳은 고치세요, 한 줄에 '장:절 본문')</span>
       <textarea id="scrText" rows="8">${esc(scr.verses.map((v) => `${v.c}:${v.v} ${v.text}`).join("\n"))}</textarea></label>
       <button class="wide" id="scrClear">본문 채우기 끄기 (원래 슬라이드로)</button>` : `<p class="hint">본문이 원래 말씀 슬라이드 모양(표)으로 들어가고, '성경 봉독' 카드의 구절도 바뀝니다.</p>`}
   </div>`;
+}
+
+// 구절 -> 앱 안 성경에서 본문. 그 번역본이 없으면 고르게 함.  -> {ref, verses, translation} | null
+async function autoScripture(refText, tr) {
+  refText = (refText || "").trim();
+  if (!refText) { toast("본문 구절을 입력해 주세요. (예: 사도행전 6:1-7)"); return null; }
+  const ref = B.parseRef(refText);
+  if (!ref) { toast("구절을 알아보지 못했어요. 예: 사도행전 6:1-7, 요 3:16, 시 23편, 롬 8:38-9:2", 6000); return null; }
+  save("cppt.translation", tr);
+  if (!(await B.hasBible(tr))) {
+    const pick = await choose(`📖 ${tr} 본문`, `${tr}은(는) 저작권 때문에 앱에 넣어 둘 수 없어요.<br>가지고 있는 ${tr} 성경 파일(txt)을 한 번 넣으면 이 폰 안에만 저장되고, 그다음부터는 인터넷 없이 자동으로 채워집니다.`,
+      [["file", `📂 ${tr} 성경 파일 넣기`], ["krv", "개역한글로 바로 넣기 (앱 안에 있음)"], ["bsk", "성서공회 열어서 복사하기"], ...(getAiKey() ? [["ai", "🤖 AI로 찾기"]] : []), ["", "닫기"]]);
+    if (pick === "krv") tr = "개역한글";
+    else if (pick === "file") { if (!(await importBibleFile(tr))) return null; }
+    else if (pick === "bsk") { openBible(refText, tr); toast("본문을 복사한 뒤 [복사한 본문 넣기] 를 누르세요.", 6000); return null; }
+    else if (pick === "ai") {
+      busy(`${refText} (${tr}) 본문을 찾는 중...`);
+      try { const G = await import("./gemini.js"); const r = await G.fetchScripture(refText, tr); busy(); return { ref, verses: r.verses, translation: tr }; }
+      catch (e) { busy(); if (e.kind === "key") aiKeyDialog(); else toast(e.message, 6000); return null; }
+    } else return null;
+  }
+  busy(`${tr} 성경을 여는 중...`);
+  try {
+    const data = await B.loadBible(tr);
+    busy();
+    const verses = B.versesFromBible(data, ref);
+    if (!verses.length) { toast(`${ref.book} ${ref.c1}장${ref.v1 ? ` ${ref.v1}절` : ""} 을(를) 찾지 못했어요. 장·절 번호를 확인해 주세요.`, 6000); return null; }
+    return { ref, verses, translation: tr };
+  } catch (e) { busy(); toast(e.message, 6000); return null; }
+}
+
+// 가진 성경 txt 파일을 이 폰 안에 저장 ("창1:1 태초에..." 처럼 한 줄에 한 절)
+async function importBibleFile(tr) {
+  const [f] = await pickFiles(".txt,text/plain");
+  if (!f) return false;
+  const text = await L.readTextFile(f);
+  const r = B.parseBibleTxt(text);
+  if (r.verses < 100) { alert("성경 본문을 읽지 못했어요.\n한 줄에 '창1:1 태초에 ...' 처럼 '책 장:절 본문' 모양인 txt 파일이어야 합니다."); return false; }
+  await B.saveBible(tr, r.data);
+  toast(`${tr} 성경 ${r.books}권 · ${r.verses.toLocaleString()}절을 저장했습니다. 이제 인터넷 없이 자동으로 채워집니다.`, 6000);
+  return true;
+}
+
+function choose(title, html, options) {
+  return new Promise((done) => {
+    const box = document.createElement("div");
+    box.className = "pick";
+    box.innerHTML = `<div><h3>${title}</h3><p class="hint">${html}</p>${options.map(([k, label]) => `<button class="wide ${k && k === options[0][0] ? "primary" : ""}" data-k="${k}">${label}</button>`).join("")}</div>`;
+    box.onclick = (e) => { const b = e.target.closest("button[data-k]"); if (!b) return; box.remove(); done(b.dataset.k); };
+    document.body.appendChild(box);
+  });
 }
 
 // 성서공회 성경 페이지 열기 (성서공회에 없는 번역본은 구글 검색)
@@ -896,6 +963,20 @@ function missingNote(ref, vs) {
 function bindScriptureBox(it, rerender) {
   $("#scrTr").onchange = (e) => save("cppt.translation", e.target.value);
   $("#scrPer").onchange = (e) => { if (it.data.scripture) { it.data.scripture.perSlide = +e.target.value; persist(); } };
+  const autoGo = async () => {
+    const refText = $("#scrRef").value.trim();
+    const tr = $("#scrTr").value, per = +$("#scrPer").value;
+    const r = await autoScripture(refText, tr);
+    if (!r) return;
+    const label = B.refLabel(r.ref.book, r.verses);
+    it.data.scripture = { ref: refText, translation: r.translation, perSlide: per, book: r.ref.book, verses: r.verses, label };
+    setReadingCard(label);
+    persist(); rerender();
+    toast(`${label} (${r.translation}) · ${r.verses.length}절을 넣었습니다.`, 5000);
+  };
+  $("#scrAuto").onclick = autoGo;
+  $("#scrFile").onclick = () => importBibleFile($("#scrTr").value);
+  $("#scrRef").onkeydown = (e) => { if (e.key === "Enter") { e.preventDefault(); autoGo(); } };
   $("#scrOpen").onclick = () => {
     const refText = $("#scrRef").value.trim();
     if (!refText) return toast("본문을 입력해 주세요. (예: 사도행전 6:1-7)");
@@ -1255,3 +1336,14 @@ loadTpl();
 loadBuiltinLibrary();
 if (document.fonts) document.fonts.load('bold 20px "NanumSquare Neo Regular"').then(() => render()).catch(() => {});
 if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+
+// 인터넷 될 때 개역한글 성경을 미리 받아 둔다 (그다음부터는 인터넷 없이도 본문 자동 채우기)
+if ("serviceWorker" in navigator && location.protocol === "https:" && "caches" in window) {
+  setTimeout(async () => {
+    try {
+      if (!navigator.onLine || (await caches.match("bible/krv.json", { ignoreSearch: true }))) return;
+      await navigator.serviceWorker.ready;
+      await fetch("bible/krv.json");
+    } catch { /* 다음에 */ }
+  }, 8000);
+}

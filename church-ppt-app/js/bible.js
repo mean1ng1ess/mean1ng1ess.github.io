@@ -114,3 +114,80 @@ export function versesFromCopied(text, ref) {
   };
   return out.filter((x) => { const k = `${x.c}:${x.v}`; if (seen.has(k)) return false; seen.add(k); return inRange(x); });
 }
+
+// ------------------------------------------------------------------ 앱 안의 성경 (인터넷 없이)
+// 개역한글은 저작권이 끝나 앱에 들어 있음. 다른 번역본은 가진 파일을 한 번 넣으면 폰 안에만 저장됨.
+export const BUNDLED = { "개역한글": "bible/krv.json" };
+const mem = {};
+
+function idb() {
+  return new Promise((ok, no) => {
+    const r = indexedDB.open("cppt-bible", 1);
+    r.onupgradeneeded = () => r.result.createObjectStore("b");
+    r.onsuccess = () => ok(r.result);
+    r.onerror = () => no(r.error);
+  });
+}
+async function idbDo(mode, fn) {
+  const db = await idb();
+  return new Promise((ok, no) => {
+    const t = db.transaction("b", mode);
+    const req = fn(t.objectStore("b"));
+    t.oncomplete = () => ok(req && req.result);
+    t.onerror = () => no(t.error);
+  });
+}
+export const savedBibles = async () => { try { return await idbDo("readonly", (s) => s.getAllKeys()); } catch { return []; } };
+export const saveBible = (tr, data) => { mem[tr] = data; return idbDo("readwrite", (s) => s.put(data, tr)); };
+export const deleteBible = (tr) => { delete mem[tr]; return idbDo("readwrite", (s) => s.delete(tr)); };
+
+export async function hasBible(tr) {
+  return !!(mem[tr] || BUNDLED[tr] || (await savedBibles()).includes(tr));
+}
+
+export async function loadBible(tr, fetchFn = fetch) {
+  if (mem[tr]) return mem[tr];
+  let data = null;
+  try { data = await idbDo("readonly", (s) => s.get(tr)); } catch { /* 없음 */ }
+  if (!data && BUNDLED[tr]) {
+    const res = await fetchFn(BUNDLED[tr]);
+    if (!res.ok) throw new Error("성경 파일을 불러오지 못했습니다. 인터넷에 한 번 연결한 뒤 다시 해 주세요.");
+    data = await res.json();
+  }
+  if (data) mem[tr] = data;
+  return data;
+}
+
+// 구절 -> [{c, v, text}]  (절이 없으면 장 전체)
+export function versesFromBible(data, ref) {
+  const book = data && data[ref.code];
+  if (!book) return [];
+  const out = [];
+  for (let c = ref.c1; c <= ref.c2; c++) {
+    const ch = book[c - 1] || [];
+    const from = c === ref.c1 && ref.v1 != null ? ref.v1 : 1;
+    const to = c === ref.c2 && ref.v2 != null ? ref.v2 : ch.length;
+    for (let v = from; v <= Math.min(to, ch.length); v++) if (ch[v - 1]) out.push({ c, v, text: ch[v - 1] });
+  }
+  return out;
+}
+
+// 가진 성경 txt 파일 읽기:  "창1:1 태초에 ..." / "창세기 1:1 ..." / "창 1장 1절 ..."  (소제목 <...> 은 지움)
+export function parseBibleTxt(text) {
+  const out = {};
+  let n = 0;
+  for (const raw of text.replace(/^﻿/, "").split(/\r?\n/)) {
+    const m = /^\s*(\d?\s*[가-힣]+)\s*(\d+)\s*[:：장]\s*(\d+)\s*절?\s+(.+)$/.exec(raw);
+    if (!m) continue;
+    const b = findBook(m[1]);
+    if (!b) continue;
+    const body = m[4].replace(/<[^>]*>\s*/g, "").replace(/\d+\)(?=\S)/g, "").replace(/\s+/g, " ").trim();
+    if (!body) continue;
+    const book = (out[b[1]] = out[b[1]] || []);
+    const ch = (book[+m[2] - 1] = book[+m[2] - 1] || []);
+    ch[+m[3] - 1] = body;
+    n++;
+  }
+  for (const k of Object.keys(out)) out[k] = Array.from(out[k], (c) => Array.from(c || [], (v) => v || ""));
+  return { data: out, verses: n, books: Object.keys(out).length };
+}
