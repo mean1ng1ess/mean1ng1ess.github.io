@@ -82,14 +82,14 @@ export function drawSlide(pptx, slide, spec, d) {
   const align = spec.hint === "scripture" && d.scriptureAlign ? d.scriptureAlign : d.contentAlign;
   let bodyTop = Y;
   if (spec.heading) {
-    const hs = d.headingStyle;
+    const hs = spec.hint === "scripture" ? { ...d.headingStyle, color: d.bodyStyle.color } : d.headingStyle;
     addText(slide, [X, Y, BW, BH * 0.17], [{ text: spec.heading, style: hs, size: hs.size }], align, "middle", 1, d.autoShrink);
     bodyTop = Y + BH * 0.21;
   }
   const bs = d.bodyStyle;
   const paras = spec.lines.map((ln) => {
-    const m = spec.hint === "scripture" ? /^(\d{1,3})\s+(.+)$/.exec(ln) : null;
-    if (m) return { text: m[2], style: bs, size: bs.size, prefix: { text: m[1], style: { ...d.headingStyle, outline: bs.outline }, size: bs.size * 0.65 } };
+    const m = spec.hint === "scripture" ? /^(\d{1,3}(?:-\d{1,3})?)\s+(.+)$/.exec(ln) : null;
+    if (m) return { text: m[2], style: bs, size: bs.size, prefix: { text: m[1], style: { ...d.headingStyle, color: bs.color, outline: bs.outline }, size: bs.size * 0.65 } };
     return { text: ln, style: bs, size: bs.size };
   });
   addText(slide, [X, bodyTop, BW, Y + BH - bodyTop], paras, align, spec.heading ? "top" : "middle", d.lineSpacing, d.autoShrink);

@@ -1,5 +1,6 @@
 // 예배 순서 -> 슬라이드 목록, 디자인 기본값.  (윈도우 프로그램의 service.py / design.py 와 같은 규칙)
 import { BLANK_LINE, chunkLines, labelAbbrev, parseBody, parseOrder, resolveOrder } from "./lyrics.js";
+import { chapterHeading, parseRef, versesFromItemText } from "./bible.js";
 
 export const ITEM = { COVER: "cover", SONG: "song", SCRIPTURE: "scripture", SERMON: "sermon", TEXT: "text" };
 export const ITEM_LABELS = { cover: "표지·순서", song: "찬양", scripture: "성경", sermon: "설교", text: "광고/텍스트", fixed: "우리 교회 틀" };
@@ -156,13 +157,25 @@ export function itemSlides(item, design, ids = makeIds()) {
     return [{ kind: "cover", section: (d.title || "").trim() || "표지", sectionId: ids.next(), heading: d.title || "", subtitle: sub.join("\n"), lines: [], card }];
   }
   if (item.kind === "scripture") {
+    // 우리 교회 말씀 슬라이드처럼: 제목은 "사무엘상 1장" (번역본 이름 없이), N 절씩, 장이 바뀌면 새 슬라이드
     const ref = (d.reference || "").trim() || "성경 본문";
-    const tr = (d.translation || "").trim();
-    const heading = tr ? `${ref} (${tr})` : ref;
     const sid = ids.next();
-    const chunks = chunkLines((d.text || "").split(/\r?\n/).map((s) => s.trim()), +d.perSlide || design.versesPerSlide);
-    if (!chunks.length) return [{ kind: "cover", section: `말씀 - ${ref}`, sectionId: sid, heading, lines: [], subtitle: "" }];
-    return chunks.map((c) => ({ kind: "content", section: `말씀 - ${ref}`, sectionId: sid, heading, lines: c, notes: heading, hint: "scripture" }));
+    const per = +d.perSlide || design.versesPerSlide;
+    const vs = versesFromItemText(d.text, parseRef(ref));
+    if (!vs.length) {
+      const chunks = chunkLines((d.text || "").split(/\r?\n/).map((s) => s.trim()), per);
+      const heading = chapterHeading(ref);
+      if (!chunks.length) return [{ kind: "cover", section: `말씀 - ${ref}`, sectionId: sid, heading, lines: [], subtitle: "" }];
+      return chunks.map((c) => ({ kind: "content", section: `말씀 - ${ref}`, sectionId: sid, heading, lines: c, notes: heading, hint: "scripture" }));
+    }
+    const out = [];
+    for (const v of vs) {
+      const last = out[out.length - 1];
+      const line = `${v.vEnd ? `${v.v}-${v.vEnd}` : v.v} ${v.text}`;
+      if (last && last.c === v.c && last.lines.length < per) last.lines.push(line);
+      else out.push({ c: v.c, lines: [line] });
+    }
+    return out.map((o) => { const heading = chapterHeading(ref, o.c); return { kind: "content", section: `말씀 - ${ref}`, sectionId: sid, heading, lines: o.lines, notes: heading, hint: "scripture" }; });
   }
   if (item.kind === "sermon") {
     const title = (d.title || "").trim() || "설교";

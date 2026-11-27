@@ -4,6 +4,7 @@
 //     원래 슬라이드를 그대로 복사한다 (영상·사진·표·효과 포함). 이번 주에 바뀌는 글자만 고칠 수 있다.
 //   · 찬양 구역은 새 곡으로 바꾼다. 원래 PPT 의 '곡 제목 슬라이드'와 '가사 슬라이드'를 복제해서 글자만 바꾼다.
 // PPT 파일은 휴대폰 안(IndexedDB)에만 저장된다.
+import { chapterHeading, parseRef, versesFromItemText } from "./bible.js";
 import { BLANK_LINE, chunkLines, resolveOrder } from "./lyrics.js";
 import { itemToSong, sectionName } from "./slides.js";
 import { songsFromPptx } from "./pptimport.js";
@@ -292,6 +293,8 @@ export async function buildFromTemplate(data, items, { linesPerSlide = 2 } = {})
   };
   const textSlide = (srcId, lines) => cloneSlide(srcId, (doc) => { const b = mainBody(doc); if (b) setBodyLines(b, lines); });
   const titleSrc = analysis.titleSlide || analysis.lyricSlide;
+  const scrInfo = analysis.sections.map((_, i) => scriptureSectionInfo(analysis, i)).find((x) => x && x.tableSlides.length);
+  const scrTable = scrInfo ? scrInfo.tableSlides[0] : null;
 
   for (const it of items) {
     if (it.kind === "fixed") {
@@ -357,6 +360,26 @@ export async function buildFromTemplate(data, items, { linesPerSlide = 2 } = {})
         outSections.push({ name: part.label ? partSectionName(title, part.label, labels) : title, ids });
       }
       continue;
+    }
+    // 따로 추가한 성경 항목: 교회 원래 말씀 표 슬라이드로 (제목 "사무엘상 1장", N 절씩)
+    if (it.kind === "scripture" && scrTable) {
+      const d = it.data;
+      const vs = versesFromItemText(d.text, parseRef(d.reference || ""));
+      if (vs.length) {
+        const ids = [];
+        for (const chunk of scriptureChunks(vs, +d.perSlide || 3)) {
+          const s2 = await cloneSlide(scrTable, (doc) => {
+            const fs = fields(doc, z.footer);
+            const head = fs.find((f) => f.kind === "text");
+            if (head) setBodyLines(head.node, [chapterHeading(d.reference, chunk[0].c)]);
+            const tb = fs.find((f) => f.kind === "table");
+            if (tb) setTable(tb.node, chunk.map((x) => `${x.vEnd ? `${x.v}-${x.vEnd}` : x.v} | ${x.text}`).join("\n"));
+          });
+          order.push(s2); ids.push(s2.id);
+        }
+        outSections.push({ name: `말씀 - ${(d.reference || "").trim() || "본문"}`, ids });
+        continue;
+      }
     }
     // 틀 모드에서 따로 추가한 성경/설교/광고/표지: 제목 슬라이드 + 가사 슬라이드 모양으로
     const d = it.data;

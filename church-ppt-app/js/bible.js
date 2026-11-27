@@ -244,3 +244,26 @@ export function parseBibleTxt(text) {
   for (const k of Object.keys(out)) out[k] = Array.from(out[k], (c) => Array.from(c || [], (v) => v || ""));
   return { data: out, verses: n, books: Object.keys(out).length };
 }
+
+// 성경 항목의 본문 칸 ("1 본문" 줄들) -> [{c, v, vEnd, text}]  절 번호가 작아지면 다음 장
+export function versesFromItemText(text, ref) {
+  const out = [];
+  let c = ref ? ref.c1 : 1, last = 0;
+  for (const raw of (text || "").split(/\r?\n/)) {
+    const l = raw.trim();
+    if (!l) continue;
+    const m = /^(?:(\d+)\s*[:：]\s*)?(\d{1,3})(?:-(\d{1,3}))?\s+(.+)$/.exec(l);
+    if (!m) { if (out.length) out[out.length - 1].text += " " + l; continue; }
+    const v = +m[2];
+    if (m[1]) c = +m[1]; else if (v < last) c += 1;
+    last = m[3] ? +m[3] : v;
+    out.push({ c, v, ...(m[3] ? { vEnd: +m[3] } : {}), text: m[4] });
+  }
+  return out;
+}
+
+// 말씀 슬라이드 제목: "사무엘상 1장"
+export function chapterHeading(refText, c) {
+  const ref = parseRef(refText || "");
+  return ref ? `${ref.book} ${c ?? ref.c1}장` : (refText || "").trim();
+}

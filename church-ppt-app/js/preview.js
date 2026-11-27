@@ -117,7 +117,7 @@ export function paintSlide(canvas, spec, d, onAsync) {
     const align = spec.hint === "scripture" && d.scriptureAlign ? d.scriptureAlign : d.contentAlign;
     let bodyTop = Y;
     if (spec.heading) {
-      drawParas(ctx, R(X, Y, BW, BH * 0.17), [{ text: spec.heading, style: d.headingStyle, size: d.headingStyle.size }], align, "middle", 1, k, d.autoShrink);
+      drawParas(ctx, R(X, Y, BW, BH * 0.17), [{ text: spec.heading, style: spec.hint === "scripture" ? { ...d.headingStyle, color: d.bodyStyle.color } : d.headingStyle, size: d.headingStyle.size }], align, "middle", 1, k, d.autoShrink);
       bodyTop = Y + BH * 0.21;
     }
     drawParas(ctx, R(X, bodyTop, BW, Y + BH - bodyTop), spec.lines.map((t) => ({ text: t, style: d.bodyStyle, size: d.bodyStyle.size })),
