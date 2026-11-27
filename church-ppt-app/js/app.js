@@ -42,6 +42,7 @@ async function loadTpl() {
     if (!saved) return;
     tpl.name = saved.name; tpl.data = saved.data;
     tpl.analysis = await T.analyzeTemplate(saved.data);
+    tpl.scriptureInfo = (i) => T.scriptureSectionInfo(tpl.analysis, i);
     render();
   } catch (e) { console.warn(e); }
 }
@@ -176,6 +177,10 @@ function renderOrder(main) {
 function itemInfo(it) {
   if (it.kind === "fixed") {
     if (it.data.skip) return "이번 주 빼기";
+    if (it.data.scripture && it.data.scripture.verses) {
+      const sc = it.data.scripture, n = Math.ceil(sc.verses.length / (sc.perSlide || 3));
+      return `📖 ${sc.label} (${sc.translation}) · ${sc.perSlide || 3}절씩 약 ${n}장`;
+    }
     const sec = tpl.analysis && tpl.analysis.sections[it.data.sectionIndex];
     const n = sec ? sec.ids.length : 0;
     const changed = Object.values(it.data.edits || {}).some((e) => Object.keys(e).length);
@@ -541,7 +546,9 @@ function renderEditor() {
   ed.innerHTML = `
     <header><button id="edBack">← 완료</button><b>${S.ITEM_ICONS[it.kind]} ${S.ITEM_LABELS[it.kind]}</b><span></span></header>
     <div class="edBody">
-      ${FIELDS[it.kind].map(([k, label, ph]) => `<label class="field"><span>${label}</span><input data-f="${k}" value="${esc(it.data[k])}" placeholder="${esc(ph)}"></label>`).join("")}
+      ${FIELDS[it.kind].map(([k, label, ph]) => k === "translation"
+        ? `<label class="field"><span>${label}</span><select data-f="translation">${TRANS.map((t) => `<option ${t === (it.data.translation || load("cppt.translation", "개역개정")) ? "selected" : ""}>${t}</option>`).join("")}</select></label>`
+        : `<label class="field"><span>${label}</span><input data-f="${k}" value="${esc(it.data[k])}" placeholder="${esc(ph)}"></label>`).join("")}
       ${it.kind === "song" ? `
         <div class="grid3">
           <button class="primary" data-a="ai">🤖 AI 가사 자동 채우기</button>
@@ -556,7 +563,8 @@ function renderEditor() {
           <button data-a="ppt">📄 이 곡만 PPT</button>
         </div>
         <label class="field"><span>순서(송폼) — 예: V1 C V2 C B C (비우면 적힌 순서대로)</span><input data-f="order" value="${esc(it.data.order)}"></label>` : ""}
-      ${it.kind === "scripture" ? `<button class="primary wide" data-a="bible">🔍 인터넷에서 본문 검색</button><p class="hint">검색된 본문을 복사해서 아래에 붙여넣으세요. 앞에 절 번호를 쓰면 작게 표시됩니다.</p>` : ""}
+      ${it.kind === "scripture" ? `<div class="row2"><button class="primary" data-a="bibleAi">📖 본문 찾아 채우기 (AI)</button><label class="field" style="margin:0"><select data-f="perSlide">${[1, 2, 3, 4, 5].map((n) => `<option value="${n}" ${String(it.data.perSlide || 3) === String(n) ? "selected" : ""}>한 장에 ${n}절</option>`).join("")}</select></label></div>
+        <button class="wide" data-a="bible">🔍 구글에서 본문 검색</button><p class="hint">검색된 본문을 복사해서 아래에 붙여넣으세요. 앞에 절 번호를 쓰면 작게 표시됩니다.</p>` : ""}
       ${it.kind === "cover" ? `
         <p class="hint">빠른 입력 (순서 카드)</p>
         <div class="grid3">${["예배가 곧 시작됩니다.|기도로 예배를 준비 해주세요.|0", "대표 기도|", "성경 봉독|", "설교|", "봉헌|", "봉헌 기도|", "축   도|", "광   고|총무", "결단 찬양|"]
@@ -671,6 +679,23 @@ async function editorAction(it, a) {
   const d = it.data;
   if (a === "lib") return pickFromLibrary(it);
   if (a === "ai") return aiFill(it);
+  if (a === "bibleAi") {
+    const ref = (d.reference || "").trim();
+    if (!ref) return toast("본문 구절을 입력해 주세요. (예: 사도행전 6:1-7)");
+    if (!getAiKey()) return aiKeyDialog(() => editorAction(it, "bibleAi"));
+    const tr = (d.translation || "").trim() || load("cppt.translation", "개역개정");
+    busy(`${ref} (${tr}) 본문을 찾는 중...`);
+    try {
+      const G = await import("./gemini.js");
+      const r = await G.fetchScripture(ref, tr);
+      busy();
+      const label = G.scriptureLabel(r.book, r.verses).replace(/(\d+)장 /, "$1:").replace(/절$/, "").replace(/ - (\d+)장 /, "-$1:");
+      d.reference = label; d.translation = tr;
+      d.text = r.verses.map((v) => `${v.v} ${v.text}`).join("\n");
+      persist(); renderEditor();
+      return toast(`${r.verses.length}절을 넣었습니다. 한 번 확인해 주세요.`);
+    } catch (e) { busy(); if (e.kind === "key") return aiKeyDialog(); if (confirm(`${e.message}\n\n구글에서 본문을 검색할까요?`)) webSearch(`${ref} ${tr}`); return; }
+  }
   if (a === "search") {
     if (!d.title.trim()) return toast("먼저 찬양 제목을 입력해 주세요.");
     webSearch(`${d.title} ${d.artist || ""} 가사`);
@@ -736,7 +761,7 @@ async function pickTemplate() {
     const data = await f.arrayBuffer();
     const analysis = await T.analyzeTemplate(data);
     await T.saveTemplate(f.name, data);
-    Object.assign(tpl, { name: f.name, data, analysis });
+    Object.assign(tpl, { name: f.name, data, analysis, scriptureInfo: (i) => T.scriptureSectionInfo(analysis, i) });
     // 미리보기도 교회 PPT 와 같은 모양으로
     const nd = S.normalizeDesign(S.presetDesign("Connection 목청"));
     try { nd.cardImage = await urlToDataUrl(nd.cardImageUrl); } catch { /* 없음 */ }
@@ -770,6 +795,7 @@ function renderFixedEditor(it, ed) {
       ${!a ? `<p class="empty">교회 PPT 틀을 불러오는 중이거나 없습니다. [디자인] 에서 틀을 넣어 주세요.</p>` : `
       <p class="hint">원래 슬라이드를 그대로 씁니다 (영상·사진·표·글꼴 포함). 이번 주에 바뀌는 글자만 고치세요.</p>
       <label class="chk"><input type="checkbox" id="fxSkip" ${it.data.skip ? "checked" : ""}> 이번 주에는 이 부분 빼기</label>
+      ${tpl.scriptureInfo && tpl.scriptureInfo(it.data.sectionIndex) ? scriptureBoxHtml(it.data.scripture) : ""}
       ${sec.ids.length ? sec.ids.map((id, n) => {
         const fs = a.slideFields[id] || [];
         const edits = (it.data.edits || {})[id] || {};
@@ -782,6 +808,7 @@ function renderFixedEditor(it, ed) {
   $("#edBack").onclick = closeEditor;
   if (!a) return;
   $("#fxSkip").onchange = (e) => { it.data.skip = e.target.checked; persist(); };
+  if ($("#scrGo")) bindScriptureBox(it, () => renderEditor());
   ed.querySelectorAll("textarea[data-sid]").forEach((ta) => (ta.oninput = () => {
     it.data.edits = it.data.edits || {};
     const e = (it.data.edits[ta.dataset.sid] = it.data.edits[ta.dataset.sid] || {});
@@ -812,6 +839,77 @@ function pickFromLibrary(it) {
   box.querySelector("input").oninput = (e) => draw(e.target.value);
   box.querySelector("button.wide:last-child").onclick = () => box.remove();
   document.body.appendChild(box);
+}
+
+// ------------------------------------------------------------------ 말씀 본문 자동 채우기
+const TRANS = ["개역개정", "개역한글", "새번역", "쉬운성경", "현대인의성경", "공동번역 개정판", "우리말성경", "NIV", "ESV", "KJV"];
+function scriptureBoxHtml(scr) {
+  const tr = (scr && scr.translation) || load("cppt.translation", "개역개정");
+  const per = (scr && scr.perSlide) || 3;
+  return `<div class="tplBox">
+    <b>📖 말씀 본문 자동으로 채우기</b>
+    <label class="field"><span>본문 (예: 사도행전 6:1-7, 행 6장 1-7절)</span><input id="scrRef" value="${esc((scr && scr.ref) || "")}" placeholder="사도행전 6:1-7"></label>
+    <div class="row2">
+      <label class="field"><span>번역본</span><select id="scrTr">${TRANS.map((t) => `<option ${t === tr ? "selected" : ""}>${t}</option>`).join("")}</select></label>
+      <label class="field"><span>한 장에 몇 절</span><select id="scrPer">${[1, 2, 3, 4, 5].map((n) => `<option value="${n}" ${n === per ? "selected" : ""}>${n}절</option>`).join("")}</select></label>
+    </div>
+    <button class="wide primary" id="scrGo">🔍 본문 찾아서 채우기 (AI)</button>
+    ${scr && scr.verses ? `<label class="field"><span>찾은 본문 — ${esc(scr.label || "")} (틀린 곳은 고치세요, 한 줄에 '장:절 본문')</span>
+      <textarea id="scrText" rows="8">${esc(scr.verses.map((v) => `${v.c}:${v.v} ${v.text}`).join("\n"))}</textarea></label>
+      <button class="wide" id="scrClear">자동 채우기 끄기 (원래 슬라이드로)</button>` : `<p class="hint">찾은 본문이 ${per}절씩 원래 말씀 슬라이드 모양(표)으로 들어가고, '성경 봉독' 카드의 구절도 바뀝니다.</p>`}
+  </div>`;
+}
+
+function bindScriptureBox(it, rerender) {
+  $("#scrTr").onchange = (e) => save("cppt.translation", e.target.value);
+  $("#scrPer").onchange = (e) => { if (it.data.scripture) { it.data.scripture.perSlide = +e.target.value; persist(); } };
+  $("#scrGo").onclick = async () => {
+    const ref = $("#scrRef").value.trim();
+    if (!ref) return toast("본문을 입력해 주세요. (예: 사도행전 6:1-7)");
+    if (!getAiKey()) return aiKeyDialog(() => $("#scrGo").click());
+    const tr = $("#scrTr").value, per = +$("#scrPer").value;
+    save("cppt.translation", tr);
+    busy(`${ref} (${tr}) 본문을 찾는 중...`);
+    try {
+      const G = await import("./gemini.js");
+      const r = await G.fetchScripture(ref, tr);
+      busy();
+      const label = G.scriptureLabel(r.book, r.verses);
+      it.data.scripture = { ref, translation: tr, perSlide: per, book: r.book, verses: r.verses, label };
+      setReadingCard(label);
+      persist(); rerender();
+      toast(`${label} · ${r.verses.length}절을 넣었습니다. 한 번 확인해 주세요.`, 5000);
+    } catch (e) {
+      busy();
+      if (e.kind === "key") return aiKeyDialog();
+      if (confirm(`${e.message}\n\n구글에서 본문을 검색할까요?`)) webSearch(`${ref} ${tr}`);
+    }
+  };
+  const ta = $("#scrText");
+  if (ta) ta.oninput = () => {
+    const vs = [];
+    for (const l of ta.value.split("\n")) { const m = /^(\d+)\s*[:：]\s*(\d+)\s+(.+)$/.exec(l.trim()); if (m) vs.push({ c: +m[1], v: +m[2], text: m[3] }); }
+    it.data.scripture.verses = vs; persist();
+  };
+  const clr = $("#scrClear");
+  if (clr) clr.onclick = () => { delete it.data.scripture; persist(); rerender(); };
+}
+
+// '성경 봉독' 카드의 구절 칸을 바꾼다 (예: 사도행전 6장 1-7절)
+function setReadingCard(label) {
+  if (!tpl.analysis) return;
+  for (const item of state.service.items) {
+    if (item.kind !== "fixed") continue;
+    const sec = tpl.analysis.sections[item.data.sectionIndex];
+    for (const id of (sec ? sec.ids : [])) {
+      const fs = tpl.analysis.slideFields[id] || [];
+      if (!fs.some((f) => f.kind === "text" && f.value.replace(/\s+/g, "") === "성경봉독")) continue;
+      const target = fs.find((f) => f.kind === "text" && f.value.replace(/\s+/g, "") !== "성경봉독");
+      if (!target) continue;
+      item.data.edits = item.data.edits || {};
+      item.data.edits[id] = { ...(item.data.edits[id] || {}), [target.key]: label };
+    }
+  }
 }
 
 // ------------------------------------------------------------------ 무료 AI (Gemini)
@@ -1003,7 +1101,7 @@ async function ensureChurchTemplate() {
     const T = await tplModule();
     const analysis = await T.analyzeTemplate(data);
     await T.saveTemplate(CHURCH.name, data);
-    Object.assign(tpl, { name: CHURCH.name, data, analysis });
+    Object.assign(tpl, { name: CHURCH.name, data, analysis, scriptureInfo: (i) => T.scriptureSectionInfo(analysis, i) });
     for (const b of analysis.blocks) if (b.kind === "song" && b.song && !findInLibrary(b.song.title)) state.library[b.song.title] = L.songToText(b.song);
     busy();
     return true;

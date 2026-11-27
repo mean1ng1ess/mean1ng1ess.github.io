@@ -162,6 +162,27 @@ function partSectionName(title, label, labels) {
   return sectionName(title, label, { sectionNaming: "short" });
 }
 
+// 성경 구절을 장이 섞이지 않게 N 절씩
+function scriptureChunks(verses, n) {
+  const out = [];
+  for (const v of verses) {
+    const last = out[out.length - 1];
+    if (last && last.length < n && last[0].c === v.c) last.push(v); else out.push([v]);
+  }
+  return out;
+}
+
+// 말씀 표 슬라이드가 있는 구역인지 (앱에서 '본문 자동 채우기' 를 보여줄 곳)
+export function scriptureSectionInfo(analysis, sectionIndex) {
+  const sec = analysis.sections[sectionIndex];
+  if (!sec) return null;
+  const tables = sec.ids.filter((id) => (analysis.slideFields[id] || []).some((f) => f.kind === "table"));
+  if (!tables.length) return null;
+  const head = (analysis.slideFields[tables[0]] || []).find((f) => f.kind === "text");
+  const looksBible = /말씀|본문|성경/.test(sec.name) || (head && /\d+\s*장/.test(head.value));
+  return looksBible ? { tableSlides: tables, heading: head ? head.value : "" } : null;
+}
+
 // 빈 줄로 나눈 슬라이드가 있으면 그 나눔 그대로, 없으면 n 줄씩
 const slideChunks = (lines, n) => (lines.includes("") ? chunkLines(lines, 999) : chunkLines(lines, n));
 
@@ -276,7 +297,28 @@ export async function buildFromTemplate(data, items, { linesPerSlide = 2 } = {})
     if (it.kind === "fixed") {
       const sec = z.sections[it.data.sectionIndex];
       if (!sec || it.data.skip) continue;
+      const scr = it.data.scripture;
+      const tableIds = sec.ids.filter((id) => els(z.docs[id], "a", "tbl").length);
+      const secIds = [];
+      let scriptureDone = false;
       for (const id of sec.ids) {
+        // 말씀 본문 자동: 원래 표 슬라이드를 복제해서 N 절씩
+        if (scr && scr.verses && scr.verses.length && tableIds.includes(id)) {
+          if (scriptureDone) continue;
+          scriptureDone = true;
+          for (const chunk of scriptureChunks(scr.verses, scr.perSlide || 3)) {
+            const s2 = await cloneSlide(tableIds[0], (doc) => {
+              const fs = fields(doc, z.footer);
+              const head = fs.find((f) => f.kind === "text");
+              if (head) setBodyLines(head.node, [`${scr.book} ${chunk[0].c}장`]);
+              const tb = fs.find((f) => f.kind === "table");
+              if (tb) setTable(tb.node, chunk.map((x) => `${x.v} | ${x.text}`).join("\n"));
+            });
+            order.push(s2); secIds.push(s2.id);
+          }
+          continue;
+        }
+        secIds.push(id);
         const edits = (it.data.edits || {})[id];
         if (edits && Object.keys(edits).length) {
           const doc = z.docs[id];
@@ -290,7 +332,7 @@ export async function buildFromTemplate(data, items, { linesPerSlide = 2 } = {})
         order.push({ id, rid: z.slideRid[id] });
         used.add(id);
       }
-      outSections.push({ name: sec.name, ids: sec.ids.filter((id) => used.has(id)), keepEmpty: true });
+      outSections.push({ name: sec.name, ids: secIds, keepEmpty: true });
       continue;
     }
     if (it.kind === "song") {

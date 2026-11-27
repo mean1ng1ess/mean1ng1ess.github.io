@@ -156,6 +156,68 @@ export async function splitLyrics(raw, title = "", { key = getKey(), fetchFn = f
   return song;
 }
 
+export const TRANSLATIONS = ["개역개정", "개역한글", "새번역", "쉬운성경", "현대인의성경", "공동번역 개정판", "우리말성경", "NIV", "ESV", "KJV"];
+
+const BIBLE_PROMPT = (ref, tr) => `교회 예배 PPT 에 넣을 성경 본문을 Google 검색으로 찾아 주세요.
+
+본문: ${ref}
+번역본: ${tr}
+
+규칙:
+- 반드시 '${tr}' 번역의 본문을 글자 그대로 옮기세요. 다른 번역을 섞거나, 요약하거나, 지어내지 마세요.
+- 각주 표시(예: '1)구제' 의 '1)'), 소제목, 설명은 빼세요.
+- 한 줄에 한 절씩, 앞에 '장:절' 을 붙이세요.
+- 책 이름은 줄이지 말고 정식 이름으로 (예: 행 -> 사도행전, 요 -> 요한복음).
+- 확실한 본문을 찾지 못하면 <not_found>이유</not_found> 만 답하세요.
+- 아래 형식의 <scripture> 블록 하나만 답하세요.
+
+<scripture>
+책: 사도행전
+6:1 그 때에 제자가 더 많아졌는데 ...
+6:2 열두 사도가 ...
+</scripture>`;
+
+// 성경 본문 찾기 -> { book, verses: [{ c, v, text }] }
+export async function fetchScripture(ref, tr = "개역개정", { key = getKey(), fetchFn = fetch } = {}) {
+  if (!key) throw new AiError("AI 키가 없습니다.", "key");
+  const model = await pickModel(key, fetchFn);
+  const data = await call(`models/${model}:generateContent`, key, {
+    contents: [{ role: "user", parts: [{ text: BIBLE_PROMPT(ref, tr) }] }],
+    tools: [{ google_search: {} }],
+    generationConfig: { temperature: 0 },
+  }, fetchFn);
+  const text = textOf(data);
+  const m = /<scripture>([\s\S]*?)<\/scripture>/.exec(text);
+  if (!m) {
+    const nf = /<not_found>([\s\S]*?)<\/not_found>/.exec(text);
+    throw new AiError(nf ? nf[1].trim() || "본문을 찾지 못했습니다." : "본문을 찾지 못했습니다.", "notfound");
+  }
+  return parseScriptureText(m[1]);
+}
+
+// "책: 사도행전" + "6:1 본문" 줄들 -> { book, verses }
+export function parseScriptureText(body) {
+  let book = "";
+  const verses = [];
+  for (const raw of body.split("\n")) {
+    const l = raw.trim();
+    const b = /^책\s*[:：]\s*(.+)$/.exec(l);
+    if (b) { book = b[1].trim(); continue; }
+    const v = /^(\d+)\s*[:：장]\s*(\d+)\s*절?\s+(.+)$/.exec(l);
+    if (v) verses.push({ c: +v[1], v: +v[2], text: v[3].replace(/\d+\)(?=\S)/g, "").trim() });
+  }
+  if (!verses.length) throw new AiError("본문을 찾지 못했습니다.", "notfound");
+  return { book, verses };
+}
+
+// "사도행전 6장 1-7절",  장이 넘어가면 "사도행전 6장 1절 - 7장 2절"
+export function scriptureLabel(book, verses) {
+  if (!verses.length) return book;
+  const a = verses[0], z = verses[verses.length - 1];
+  if (a.c === z.c) return `${book} ${a.c}장 ${a.v === z.v ? a.v : `${a.v}-${z.v}`}절`;
+  return `${book} ${a.c}장 ${a.v}절 - ${z.c}장 ${z.v}절`;
+}
+
 export async function testKey(key, fetchFn = fetch) {
   try { localStorage.removeItem(MODEL); } catch { /* 무시 */ }
   return pickModel(key, fetchFn);

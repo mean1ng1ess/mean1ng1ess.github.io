@@ -42,7 +42,7 @@ export function defaultDesign() {
     showLabel: false, labelStyle: style({ size: 16, bold: false, shadow: false, color: "#BBBBBB" }), showSongTitle: false,
     titleStyle: style({ size: 60 }), headingStyle: style({ size: 40, color: "#FFE08A" }),
     bodyStyle: style({ size: 34, bold: false }), contentAlign: "left", scriptureAlign: "",  // "" = 본문 정렬과 같게
-    linesPerSlide: 2, songTitleSlide: false, blankAfterSong: true, sectionMode: "part", versesPerSlide: 2, autoShrink: true,
+    linesPerSlide: 2, songTitleSlide: false, blankAfterSong: true, sectionMode: "part", versesPerSlide: 3, autoShrink: true,
     // 모든 슬라이드 아래 문구 (예: 2026 Connection 목청)
     footerText: "", footerStyle: style({ size: 14, bold: false, shadow: false, color: "#BFBFBF" }),
     partTitleSlide: false,          // 파트(Verse/Chorus..)마다 곡 제목 슬라이드로 시작
@@ -160,7 +160,7 @@ export function itemSlides(item, design, ids = makeIds()) {
     const tr = (d.translation || "").trim();
     const heading = tr ? `${ref} (${tr})` : ref;
     const sid = ids.next();
-    const chunks = chunkLines((d.text || "").split(/\r?\n/).map((s) => s.trim()), design.versesPerSlide);
+    const chunks = chunkLines((d.text || "").split(/\r?\n/).map((s) => s.trim()), +d.perSlide || design.versesPerSlide);
     if (!chunks.length) return [{ kind: "cover", section: `말씀 - ${ref}`, sectionId: sid, heading, lines: [], subtitle: "" }];
     return chunks.map((c) => ({ kind: "content", section: `말씀 - ${ref}`, sectionId: sid, heading, lines: c, notes: heading, hint: "scripture" }));
   }
