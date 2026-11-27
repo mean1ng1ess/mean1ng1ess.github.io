@@ -754,7 +754,7 @@ async function editorAction(it, a) {
     let text = "";
     try { text = await navigator.clipboard.readText(); } catch { /* 권한 없음 */ }
     if (!text.trim()) text = d.text || "";
-    const vs = B.versesFromCopied(text, ref);
+    const vs = versesFromPaste(text, ref, (d.translation || "").trim() || load("cppt.translation", "개역개정"));
     if (!vs.length) return toast("복사한 글에서 절을 찾지 못했어요. 본문 칸에 길게 눌러 붙여넣은 뒤 다시 눌러 주세요.", 6000);
     d.text = vs.map((v) => `${v.v} ${v.text}`).join("\n");
     persist(); renderEditor();
@@ -878,8 +878,8 @@ function scriptureBoxHtml(scr) {
       <label class="field"><span>한 장에 몇 절</span><select id="scrPer">${[1, 2, 3, 4, 5].map((n) => `<option value="${n}" ${n === per ? "selected" : ""}>${n}절</option>`).join("")}</select></label>
     </div>
     <button class="wide primary" id="scrAuto">📖 본문 자동으로 채우기</button>
-    <p class="hint">구절만 넣고 누르면 ${per}절씩 원래 말씀 슬라이드에 들어갑니다. 인터넷 없이도 됩니다 (개역한글 내장 · 다른 번역본은 성경 파일을 한 번 넣으면).</p>
-    <details><summary>성서공회에서 복사해서 넣기</summary>
+    <p class="hint">구절만 넣고 누르면 ${per}절씩 원래 말씀 슬라이드에 들어갑니다. 개역개정은 한 번 가져온 장이 폰에 저장되어 다음부터 인터넷 없이 자동입니다. (개역한글은 앱에 내장)</p>
+    <details><summary>성서공회에서 복사해서 넣기 (복사한 장은 저장)</summary>
     <div class="row2"><button id="scrOpen">① 성서공회에서 열기</button><button id="scrPasteBtn">② 복사한 본문 넣기</button></div>
     <p class="hint">성서공회 페이지에서 본문을 길게 눌러 복사 → 돌아와서 ②. 입력한 구절만 골라 넣습니다.</p>
     <label class="field"><span>(②가 안 되면 여기에 길게 눌러 붙여넣기)</span><textarea id="scrPaste" rows="2" placeholder="여기에 붙여넣기"></textarea></label></details>
@@ -892,33 +892,49 @@ function scriptureBoxHtml(scr) {
   </div>`;
 }
 
-// 구절 -> 앱 안 성경에서 본문. 그 번역본이 없으면 고르게 함.  -> {ref, verses, translation} | null
-async function autoScripture(refText, tr) {
+// 구절 -> 본문 {ref, verses, translation} | null
+// 1) 이 폰에 있는 성경 (개역한글 내장, 한 번 가져온 개역개정 장)  2) AI 키가 있으면 자동으로 가져와 저장
+// 3) 없으면 성서공회를 열어 한 번 복사 (복사한 장은 저장되어 다음부터 자동)
+async function autoScripture(refText, tr, { onPasteNeeded } = {}) {
   refText = (refText || "").trim();
   if (!refText) { toast("본문 구절을 입력해 주세요. (예: 사도행전 6:1-7)"); return null; }
   const ref = B.parseRef(refText);
   if (!ref) { toast("구절을 알아보지 못했어요. 예: 사도행전 6:1-7, 요 3:16, 시 23편, 롬 8:38-9:2", 6000); return null; }
   save("cppt.translation", tr);
-  if (!(await B.hasBible(tr))) {
-    const pick = await choose(`📖 ${tr} 본문`, `${tr}은(는) 저작권 때문에 앱에 넣어 둘 수 없어요.<br>가지고 있는 ${tr} 성경 파일(txt)을 한 번 넣으면 이 폰 안에만 저장되고, 그다음부터는 인터넷 없이 자동으로 채워집니다.`,
-      [["file", `📂 ${tr} 성경 파일 넣기`], ["krv", "개역한글로 바로 넣기 (앱 안에 있음)"], ["bsk", "성서공회 열어서 복사하기"], ...(getAiKey() ? [["ai", "🤖 AI로 찾기"]] : []), ["", "닫기"]]);
-    if (pick === "krv") tr = "개역한글";
-    else if (pick === "file") { if (!(await importBibleFile(tr))) return null; }
-    else if (pick === "bsk") { openBible(refText, tr); toast("본문을 복사한 뒤 [복사한 본문 넣기] 를 누르세요.", 6000); return null; }
-    else if (pick === "ai") {
-      busy(`${refText} (${tr}) 본문을 찾는 중...`);
-      try { const G = await import("./gemini.js"); const r = await G.fetchScripture(refText, tr); busy(); return { ref, verses: r.verses, translation: tr }; }
-      catch (e) { busy(); if (e.kind === "key") aiKeyDialog(); else toast(e.message, 6000); return null; }
-    } else return null;
-  }
-  busy(`${tr} 성경을 여는 중...`);
+  let data = null;
   try {
-    const data = await B.loadBible(tr);
-    busy();
-    const verses = B.versesFromBible(data, ref);
-    if (!verses.length) { toast(`${ref.book} ${ref.c1}장${ref.v1 ? ` ${ref.v1}절` : ""} 을(를) 찾지 못했어요. 장·절 번호를 확인해 주세요.`, 6000); return null; }
-    return { ref, verses, translation: tr };
-  } catch (e) { busy(); toast(e.message, 6000); return null; }
+    if (await B.hasBible(tr)) { busy(`${tr} 성경을 여는 중...`); data = await B.loadBible(tr); busy(); }
+  } catch (e) { busy(); if (!B.BUNDLED[tr]) toast(e.message, 6000); }
+  const have = data ? B.versesFromBible(data, ref) : [];
+  if (have.length) return { ref, verses: have, translation: tr };
+  if (data && !data._partial) { toast(`${ref.book} ${ref.c1}장${ref.v1 ? ` ${ref.v1}절` : ""} 을(를) 찾지 못했어요. 장·절 번호를 확인해 주세요.`, 6000); return null; }
+  if (getAiKey()) {
+    busy(`${refText} (${tr}) 본문을 가져오는 중...`);
+    try {
+      const G = await import("./gemini.js");
+      const r = await G.fetchScripture(refText, tr);
+      busy();
+      await B.saveVerses(tr, ref.code, r.verses, ref.v1 == null ? [ref.c1] : []).catch(() => {});
+      return { ref, verses: r.verses, translation: tr };
+    } catch (e) { busy(); if (e.kind === "key") { aiKeyDialog(); return null; } toast(`AI 가 본문을 못 가져왔어요: ${e.message}`, 5000); }
+  }
+  const pick = await choose(`📖 ${ref.book} ${ref.c1}장 (${tr})`,
+    `이 장은 아직 폰에 저장된 ${tr} 본문이 없어요.<br><b>한 번만 가져오면 저장돼서 다음부터는 인터넷 없이 자동</b>으로 들어갑니다.`,
+    [["bsk", "① 성서공회에서 열기 → 장 전체 복사 → ② 넣기"], ["key", "🤖 무료 AI 키 넣고 매번 자동으로"], ...(tr !== "개역한글" ? [["krv", "이번만 개역한글로 넣기"]] : []), ["", "닫기"]]);
+  if (pick === "bsk") {
+    openBible(refText, tr);
+    if (onPasteNeeded) onPasteNeeded();
+    toast("본문을 길게 눌러 장 전체를 복사한 뒤, 돌아와서 [② 복사한 본문 넣기] 를 누르세요.", 7000);
+  } else if (pick === "key") aiKeyDialog(() => toast("AI 키가 저장됐어요. [본문 자동으로 채우기] 를 다시 눌러 주세요.", 5000));
+  else if (pick === "krv") return autoScripture(refText, "개역한글");
+  return null;
+}
+
+// 성서공회에서 복사한 글 -> 장 전체를 이 폰에 저장하고, 원하는 구절만 돌려줌
+function versesFromPaste(text, ref, tr) {
+  const all = B.versesFromCopied(text, { ...ref, v1: null, v2: null });
+  if (all.length && !B.BUNDLED[tr]) B.saveVerses(tr, ref.code, all, B.wholeChapters(all)).catch(() => {});
+  return B.versesFromCopied(text, ref);
 }
 
 // 가진 성경 txt 파일을 이 폰 안에 저장 ("창1:1 태초에..." 처럼 한 줄에 한 절)
@@ -966,7 +982,7 @@ function bindScriptureBox(it, rerender) {
   const autoGo = async () => {
     const refText = $("#scrRef").value.trim();
     const tr = $("#scrTr").value, per = +$("#scrPer").value;
-    const r = await autoScripture(refText, tr);
+    const r = await autoScripture(refText, tr, { onPasteNeeded: () => { const dt = $("#scrOpen").closest("details"); if (dt) dt.open = true; } });
     if (!r) return;
     const label = B.refLabel(r.ref.book, r.verses);
     it.data.scripture = { ref: refText, translation: r.translation, perSlide: per, book: r.ref.book, verses: r.verses, label };
@@ -987,9 +1003,9 @@ function bindScriptureBox(it, rerender) {
     const refText = $("#scrRef").value.trim();
     const ref = B.parseRef(refText);
     if (!ref) return toast("본문 칸에 구절을 바르게 입력해 주세요. (예: 사도행전 6:1-7)", 5000);
-    let vs = B.versesFromCopied(text, ref);
-    if (!vs.length) return toast("복사한 글에서 절 번호를 찾지 못했어요. 성경 본문을 절 번호까지 같이 복사해 주세요.", 6000);
     const tr = $("#scrTr").value, per = +$("#scrPer").value;
+    let vs = versesFromPaste(text, ref, tr);
+    if (!vs.length) return toast("복사한 글에서 절 번호를 찾지 못했어요. 성경 본문을 절 번호까지 같이 복사해 주세요.", 6000);
     const old = it.data.scripture;
     if (old && old.ref === refText && old.translation === tr && ref.c2 > ref.c1) {   // 여러 장: 이어 붙이기
       const m = new Map(old.verses.map((v) => [`${v.c}:${v.v}`, v]));

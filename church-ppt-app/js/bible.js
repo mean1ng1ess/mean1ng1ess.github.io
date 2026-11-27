@@ -159,17 +159,52 @@ export async function loadBible(tr, fetchFn = fetch) {
 }
 
 // 구절 -> [{c, v, text}]  (절이 없으면 장 전체)
+// 조금씩 모은 성경(_partial)은 구절이 하나라도 빠졌으면 [] (-> 새로 가져오게)
 export function versesFromBible(data, ref) {
   const book = data && data[ref.code];
   if (!book) return [];
+  const partial = !!data._partial;
+  const full = new Set(data._full || []);
   const out = [];
   for (let c = ref.c1; c <= ref.c2; c++) {
     const ch = book[c - 1] || [];
     const from = c === ref.c1 && ref.v1 != null ? ref.v1 : 1;
-    const to = c === ref.c2 && ref.v2 != null ? ref.v2 : ch.length;
-    for (let v = from; v <= Math.min(to, ch.length); v++) if (ch[v - 1]) out.push({ c, v, text: ch[v - 1] });
+    const whole = !(c === ref.c2 && ref.v2 != null);
+    if (partial && whole && !full.has(`${ref.code}:${c}`)) return [];
+    const to = whole ? ch.length : ref.v2;
+    for (let v = from; v <= to; v++) {
+      if (ch[v - 1]) out.push({ c, v, text: ch[v - 1] });
+      else if (partial) return [];
+      else if (v > ch.length) break;
+    }
   }
   return out;
+}
+
+// 가져온 본문을 이 폰의 성경에 더해 둔다 (다음부터는 인터넷 없이)
+// fullChapters: 장 전체를 가져온 장 번호들
+export async function saveVerses(tr, code, verses, fullChapters = []) {
+  if (!verses.length) return;
+  let data = null;
+  try { data = mem[tr] || (await idbDo("readonly", (s) => s.get(tr))); } catch { /* 없음 */ }
+  if (!data) data = { _partial: true };
+  if (!data._partial) return;   // 통째로 넣은 성경은 그대로
+  const book = (data[code] = data[code] || []);
+  for (const x of verses) {
+    const ch = (book[x.c - 1] = book[x.c - 1] || []);
+    ch[x.v - 1] = x.text;
+  }
+  for (let i = 0; i < book.length; i++) if (!book[i]) book[i] = [];
+  for (const ch of book) for (let i = 0; i < ch.length; i++) if (ch[i] == null) ch[i] = "";
+  data._full = [...new Set([...(data._full || []), ...fullChapters.map((c) => `${code}:${c}`)])];
+  await saveBible(tr, data);
+}
+
+// 복사한 글에서 1절부터 빠짐없이 이어진 장 = 장 전체를 복사한 것
+export function wholeChapters(verses) {
+  const by = {};
+  for (const x of verses) (by[x.c] = by[x.c] || []).push(x.v);
+  return Object.entries(by).filter(([, vs]) => vs.sort((a, b) => a - b).every((v, i) => v === i + 1) && vs.length > 1).map(([c]) => +c);
 }
 
 // 가진 성경 txt 파일 읽기:  "창1:1 태초에 ..." / "창세기 1:1 ..." / "창 1장 1절 ..."  (소제목 <...> 은 지움)
