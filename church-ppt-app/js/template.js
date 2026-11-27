@@ -364,7 +364,11 @@ export async function buildFromTemplate(data, items, { linesPerSlide = 2 } = {})
     // 따로 추가한 성경 항목: 교회 원래 말씀 표 슬라이드로 (제목 "사무엘상 1장", N 절씩)
     if (it.kind === "scripture" && scrTable) {
       const d = it.data;
-      const vs = versesFromItemText(d.text, parseRef(d.reference || ""));
+      let vs = versesFromItemText(d.text, parseRef(d.reference || ""));
+      if (!vs.length) {   // 절 번호 없이 적은 본문: 줄마다 한 칸
+        const ref = parseRef(d.reference || "");
+        vs = (d.text || "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean).map((text) => ({ c: ref ? ref.c1 : null, v: "", text }));
+      }
       if (vs.length) {
         const ids = [];
         for (const chunk of scriptureChunks(vs, +d.perSlide || 3)) {

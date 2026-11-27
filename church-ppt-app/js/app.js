@@ -1352,7 +1352,18 @@ render();
 loadTpl();
 loadBuiltinLibrary();
 if (document.fonts) document.fonts.load('bold 20px "NanumSquare Neo Regular"').then(() => render()).catch(() => {});
-if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("sw.js").catch(() => {});
+if ("serviceWorker" in navigator && location.protocol === "https:") {
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then((r) => r.update()).catch(() => {});
+  // 새 버전이 설치되면 바로 새 버전으로 (만들던 내용은 저장되어 있음)
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadController || reloaded) return;
+    reloaded = true;
+    if (document.querySelector("#busy.show")) return toast("새 버전이 있습니다. 작업이 끝나면 앱을 다시 열어 주세요.", 6000);
+    location.reload();
+  });
+}
 
 // 인터넷 될 때 개역한글 성경을 미리 받아 둔다 (그다음부터는 인터넷 없이도 본문 자동 채우기)
 if ("serviceWorker" in navigator && location.protocol === "https:" && "caches" in window) {
