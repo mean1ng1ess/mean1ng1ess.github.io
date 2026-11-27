@@ -72,8 +72,9 @@ function splitRun(line) {
 export function refLabel(book, verses) {
   if (!verses.length) return book;
   const a = verses[0], b = verses[verses.length - 1];
-  if (a.c === b.c) return a.v === b.v ? `${book} ${a.c}장 ${a.v}절` : `${book} ${a.c}장 ${a.v}-${b.v}절`;
-  return `${book} ${a.c}장 ${a.v}절 - ${b.c}장 ${b.v}절`;
+  const bv = b.vEnd || b.v;
+  if (a.c === b.c) return a.v === bv ? `${book} ${a.c}장 ${a.v}절` : `${book} ${a.c}장 ${a.v}-${bv}절`;
+  return `${book} ${a.c}장 ${a.v}절 - ${b.c}장 ${bv}절`;
 }
 
 // 성서공회(또는 다른 곳) 에서 복사한 장 본문 -> 원하는 구절만 [{c, v, text}]
@@ -118,6 +119,8 @@ export function versesFromCopied(text, ref) {
 // ------------------------------------------------------------------ 앱 안의 성경 (인터넷 없이)
 // 개역한글은 저작권이 끝나 앱에 들어 있음. 다른 번역본은 가진 파일을 한 번 넣으면 폰 안에만 저장됨.
 export const BUNDLED = { "개역한글": "bible/krv.json" };
+const MERGED = "\u0001";   // 앞 절과 합쳐진 절 (예: 롬 9:1-2 가 한 줄)
+export const verseNo = (x) => (x.vEnd ? `${x.v}-${x.vEnd}` : `${x.v}`);
 const mem = {};
 
 function idb() {
@@ -173,6 +176,12 @@ export function versesFromBible(data, ref) {
     if (partial && whole && !full.has(`${ref.code}:${c}`)) return [];
     const to = whole ? ch.length : ref.v2;
     for (let v = from; v <= to; v++) {
+      if (ch[v - 1] === MERGED) {
+        const prev = out[out.length - 1];
+        if (prev && prev.c === c) prev.vEnd = v;
+        else if (ch[v - 2]) { let k = v - 1; while (k > 1 && ch[k - 1] === MERGED) k--; out.push({ c, v: k, vEnd: v, text: ch[k - 1] }); }
+        continue;
+      }
       if (ch[v - 1]) out.push({ c, v, text: ch[v - 1] });
       else if (partial) return [];
       else if (v > ch.length) break;
@@ -210,18 +219,27 @@ export function wholeChapters(verses) {
 // 가진 성경 txt 파일 읽기:  "창1:1 태초에 ..." / "창세기 1:1 ..." / "창 1장 1절 ..."  (소제목 <...> 은 지움)
 export function parseBibleTxt(text) {
   const out = {};
-  let n = 0;
+  let n = 0, last = null;
+  const clean = (t) => t.replace(/<[^>]*>\s*/g, "").replace(/\d+\)(?=\S)/g, "").replace(/\s+/g, " ").trim();
   for (const raw of text.replace(/^﻿/, "").split(/\r?\n/)) {
-    const m = /^\s*(\d?\s*[가-힣]+)\s*(\d+)\s*[:：장]\s*(\d+)\s*절?\s+(.+)$/.exec(raw);
+    // 창1:1 본문  /  롬9:1-2 본문 (두 절이 한 줄)  /  창35: 본문 (앞 절에 이어지는 줄)
+    const m = /^\s*(\d?\s*[가-힣]+)\s*(\d+)\s*[:：장]\s*(?:(\d+)\s*(?:-\s*(\d+))?\s*절?\s+)?(.+)$/.exec(raw);
     if (!m) continue;
     const b = findBook(m[1]);
     if (!b) continue;
-    const body = m[4].replace(/<[^>]*>\s*/g, "").replace(/\d+\)(?=\S)/g, "").replace(/\s+/g, " ").trim();
+    const body = clean(m[5]);
     if (!body) continue;
+    if (!m[3]) {   // 절 번호 없음 -> 앞 절에 이어 붙임
+      if (last && last.code === b[1] && last.c === +m[2]) { last.ch[last.v - 1] += " " + body; }
+      continue;
+    }
+    const c = +m[2], v = +m[3], v2 = m[4] ? +m[4] : v;
     const book = (out[b[1]] = out[b[1]] || []);
-    const ch = (book[+m[2] - 1] = book[+m[2] - 1] || []);
-    ch[+m[3] - 1] = body;
-    n++;
+    const ch = (book[c - 1] = book[c - 1] || []);
+    ch[v - 1] = body;
+    for (let k = v + 1; k <= v2; k++) ch[k - 1] = MERGED;
+    last = { code: b[1], c, v, ch };
+    n += v2 - v + 1;
   }
   for (const k of Object.keys(out)) out[k] = Array.from(out[k], (c) => Array.from(c || [], (v) => v || ""));
   return { data: out, verses: n, books: Object.keys(out).length };

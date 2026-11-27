@@ -688,7 +688,7 @@ async function editorAction(it, a) {
     if (!r) return;
     d.reference = B.refLabel(r.ref.book, r.verses).replace(/(\d+)장 /, "$1:").replace(/절$/, "").replace(/ - (\d+)장 /, "-$1:");
     d.translation = r.translation;
-    d.text = r.verses.map((v) => `${v.v} ${v.text}`).join("\n");
+    d.text = r.verses.map((v) => `${B.verseNo(v)} ${v.text}`).join("\n");
     persist(); renderEditor();
     return toast(`${r.verses.length}절을 넣었습니다. (${r.translation})`);
   }
@@ -704,7 +704,7 @@ async function editorAction(it, a) {
       busy();
       const label = G.scriptureLabel(r.book, r.verses).replace(/(\d+)장 /, "$1:").replace(/절$/, "").replace(/ - (\d+)장 /, "-$1:");
       d.reference = label; d.translation = tr;
-      d.text = r.verses.map((v) => `${v.v} ${v.text}`).join("\n");
+      d.text = r.verses.map((v) => `${B.verseNo(v)} ${v.text}`).join("\n");
       persist(); renderEditor();
       return toast(`${r.verses.length}절을 넣었습니다. 한 번 확인해 주세요.`);
     } catch (e) { busy(); if (e.kind === "key") return aiKeyDialog(); if (confirm(`${e.message}\n\n구글에서 본문을 검색할까요?`)) webSearch(`${ref} ${tr}`); return; }
@@ -887,7 +887,7 @@ function scriptureBoxHtml(scr) {
       <button class="wide" id="scrFile">📂 성경 파일 넣기</button></details>
     ${getAiKey() ? `<button class="wide" id="scrGo">🤖 AI로 찾아서 채우기</button>` : ""}
     ${scr && scr.verses ? `<label class="field"><span>들어갈 본문 — ${esc(scr.label || "")} (틀린 곳은 고치세요, 한 줄에 '장:절 본문')</span>
-      <textarea id="scrText" rows="8">${esc(scr.verses.map((v) => `${v.c}:${v.v} ${v.text}`).join("\n"))}</textarea></label>
+      <textarea id="scrText" rows="8">${esc(scr.verses.map((v) => `${v.c}:${B.verseNo(v)} ${v.text}`).join("\n"))}</textarea></label>
       <button class="wide" id="scrClear">본문 채우기 끄기 (원래 슬라이드로)</button>` : `<p class="hint">본문이 원래 말씀 슬라이드 모양(표)으로 들어가고, '성경 봉독' 카드의 구절도 바뀝니다.</p>`}
   </div>`;
 }
@@ -920,13 +920,14 @@ async function autoScripture(refText, tr, { onPasteNeeded } = {}) {
   }
   const pick = await choose(`📖 ${ref.book} ${ref.c1}장 (${tr})`,
     `이 장은 아직 폰에 저장된 ${tr} 본문이 없어요.<br><b>한 번만 가져오면 저장돼서 다음부터는 인터넷 없이 자동</b>으로 들어갑니다.`,
-    [["bsk", "① 성서공회에서 열기 → 장 전체 복사 → ② 넣기"], ["key", "🤖 무료 AI 키 넣고 매번 자동으로"], ...(tr !== "개역한글" ? [["krv", "이번만 개역한글로 넣기"]] : []), ["", "닫기"]]);
+    [["file", `📂 ${tr} 성경 파일 넣기 (txt, 한 번만)`], ["bsk", "① 성서공회에서 열기 → 장 전체 복사 → ② 넣기"], ["key", "🤖 무료 AI 키 넣고 매번 자동으로"], ...(tr !== "개역한글" ? [["krv", "이번만 개역한글로 넣기"]] : []), ["", "닫기"]]);
   if (pick === "bsk") {
     openBible(refText, tr);
     if (onPasteNeeded) onPasteNeeded();
     toast("본문을 길게 눌러 장 전체를 복사한 뒤, 돌아와서 [② 복사한 본문 넣기] 를 누르세요.", 7000);
   } else if (pick === "key") aiKeyDialog(() => toast("AI 키가 저장됐어요. [본문 자동으로 채우기] 를 다시 눌러 주세요.", 5000));
   else if (pick === "krv") return autoScripture(refText, "개역한글");
+  else if (pick === "file") { if (await importBibleFile(tr)) return autoScripture(refText, tr); }
   return null;
 }
 
@@ -1049,7 +1050,7 @@ function bindScriptureBox(it, rerender) {
   const ta = $("#scrText");
   if (ta) ta.oninput = () => {
     const vs = [];
-    for (const l of ta.value.split("\n")) { const m = /^(\d+)\s*[:：]\s*(\d+)\s+(.+)$/.exec(l.trim()); if (m) vs.push({ c: +m[1], v: +m[2], text: m[3] }); }
+    for (const l of ta.value.split("\n")) { const m = /^(\d+)\s*[:：]\s*(\d+)(?:-(\d+))?\s+(.+)$/.exec(l.trim()); if (m) vs.push({ c: +m[1], v: +m[2], ...(m[3] ? { vEnd: +m[3] } : {}), text: m[4] }); }
     it.data.scripture.verses = vs; persist();
   };
   const clr = $("#scrClear");

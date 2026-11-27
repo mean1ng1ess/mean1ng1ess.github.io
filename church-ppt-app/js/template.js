@@ -312,7 +312,7 @@ export async function buildFromTemplate(data, items, { linesPerSlide = 2 } = {})
               const head = fs.find((f) => f.kind === "text");
               if (head) setBodyLines(head.node, [`${scr.book} ${chunk[0].c}장`]);
               const tb = fs.find((f) => f.kind === "table");
-              if (tb) setTable(tb.node, chunk.map((x) => `${x.v} | ${x.text}`).join("\n"));
+              if (tb) setTable(tb.node, chunk.map((x) => `${x.vEnd ? `${x.v}-${x.vEnd}` : x.v} | ${x.text}`).join("\n"));
             });
             order.push(s2); secIds.push(s2.id);
           }
