@@ -488,7 +488,7 @@ function renderHelp(main) {
     <b>아이폰(사파리)</b>: 아래 공유 버튼 □↑ → <b>홈 화면에 추가</b></p>
     <h3>🎵 찬양 가사 넣기 (모두 무료)</h3>
     <p>1. [+ 찬양] → 제목 입력 (보관함에 있는 곡이면 목록에서 고르면 가사까지 들어가요)<br>
-    2. 없는 곡: <b>[🔍 가사 검색]</b> (구글) → 가사를 길게 눌러 복사 → 돌아와서 <b>[📋 붙여넣기]</b><br>
+    2. 없는 곡: <b>[🔍 가사 검색]</b> (구글) → 가사를 길게 눌러 복사 → 돌아와서 가사 칸에 길게 눌러 붙여넣기<br>
     · 가사 칸에서 <code>[Verse 1]</code> <code>[Chorus]</code> <code>[Bridge]</code> 로 직접 나눌 수도 있어요. 파트 안의 빈 줄 = 슬라이드 넘김.<br>
     · 순서 칸: <code>V1 C V2 C B C</code> 처럼 쓰면 그 순서로 반복됩니다.</p>
     <h3>💾 메모장 파일</h3>
@@ -551,10 +551,8 @@ function renderEditor() {
         <div class="grid3">
           <button class="primary" data-a="lib">📚 보관함에서 고르기</button>
           <button class="primary" data-a="search">🔍 가사 검색</button>
-          <button class="primary" data-a="paste">📋 붙여넣기</button>
           <button data-a="open">📂 txt 열기</button>
           <button data-a="keep">💾 보관함 저장</button>
-          <button data-a="txt">⬇ txt 파일</button>
           <button data-a="ppt">📄 이 곡만 PPT</button>
         </div>
         <label class="field"><span>순서(송폼) — 예: V1 C V2 C B C (비우면 적힌 순서대로)</span><input data-f="order" value="${esc(it.data.order)}"></label>` : ""}
@@ -683,25 +681,13 @@ async function editorAction(it, a) {
   if (a === "search") {
     if (!d.title.trim()) return toast("먼저 찬양 제목을 입력해 주세요.");
     webSearch(`${d.title} ${d.artist || ""} 가사`);
-    toast("가사를 길게 눌러 복사한 뒤, 돌아와서 [📋 붙여넣기] 를 누르세요.", 6000);
-  } else if (a === "paste") {
-    let text = "";
-    try { text = await navigator.clipboard.readText(); } catch { /* 권한 없음 */ }
-    if (!text.trim()) return toast("복사된 글자를 읽지 못했어요. 가사 칸을 길게 눌러 직접 붙여넣어 주세요.", 6000);
-    if (!confirmReplace(it)) return;
-    d.body = L.cleanPastedLyrics(text);
-    persist(); renderEditor();
-    toast("붙여넣었습니다. 파트는 [Verse 1] [Chorus] 처럼 직접 나눠 주세요. 빈 줄 = 슬라이드 넘김.", 6000);
+    toast("가사를 길게 눌러 복사한 뒤, 돌아와서 가사 칸에 붙여넣으세요.", 6000);
   } else if (a === "open") {
     const [f] = await pickFiles(".txt,text/plain");
     if (!f || !confirmReplace(it)) return;
     applySong(it, L.songFromTxt(await L.readTextFile(f), f.name.replace(/\.txt$/i, "")));
   } else if (a === "keep") keepInLibrary(it);
-  else if (a === "txt") {
-    const song = S.itemToSong(it);
-    if (!song.title) return toast("찬양 제목을 먼저 입력해 주세요.");
-    shareOrDownload(L.txtBlob(L.songToText(song)), `${L.safeFilename(song.title)}.txt`, "text/plain");
-  } else if (a === "ppt") makePpt([it], d.title || "찬양");
+  else if (a === "ppt") makePpt([it], d.title || "찬양");
   else if (a === "bible") {
     if (!d.reference.trim()) return toast("본문 구절을 입력해 주세요. (예: 요한복음 3:16-18)");
     openBible(d.reference, (d.translation || "").trim() || load("cppt.translation", "개역개정"));
