@@ -155,13 +155,13 @@ function renderOrder(main) {
       <button data-add="text">+ 광고</button>
       <button data-add="cover">+ 순서</button>
     </div>
-    <button class="wide primary" id="aiBulk">🤖 이번 주 찬양 한 번에 채우기 (제목 + 찬양팀)</button>
+    <button class="wide primary" id="aiBulk">📚 이번 주 찬양 한 번에 넣기 (제목 + 찬양팀)</button>
     <button class="big go" id="makeChurch">⛪ 목민 청년부 PPT 만들기</button>
     <button class="wide" id="makeAll">다른 디자인으로 PPT 만들기</button>
     <p class="hint">Verse / Chorus / Bridge 가 PowerPoint <b>구역(섹션)</b>으로 나뉘어 만들어집니다.</p>`;
   $("#svcName").oninput = (e) => { state.service.name = e.target.value; persist(); };
   if ($("#tplReset")) $("#tplReset").onclick = resetServiceFromTpl;
-  $("#aiBulk").onclick = aiBulk;
+  $("#aiBulk").onclick = bulkSongs;
   $("#makeChurch").onclick = makeChurchPpt;
   main.querySelectorAll("[data-add]").forEach((b) => (b.onclick = () => addItem(b.dataset.add)));
   main.querySelectorAll(".card").forEach((card) => {
@@ -479,19 +479,16 @@ function renderHelp(main) {
     &nbsp;&nbsp;· 📌 항목(예배가 곧 시작됩니다, 사도신경, 대표기도·봉독·설교 카드, 말씀, 봉헌, 축도, 광고, 마침)은 <b>원래 슬라이드 그대로</b> — 눌러서 이번 주 이름·설교 제목·광고 글자만 고치세요.<br>
     &nbsp;&nbsp;· 🎵 찬양을 눌러 <b>[📚 보관함에서 고르기]</b> 로 이번 주 곡으로 바꾸세요.<br>
     3. [▶ 예배 전체 PPT 만들기] — 구역(섹션)도 교회 PPT 처럼 <code>곡(v1)</code> <code>곡(c)</code> 로 나뉩니다.</p>
-    <h3>🤖 무료 AI 로 가사 자동 채우기</h3>
-    <p>찬양 제목과 찬양팀만 넣으면 AI(Google Gemini, 무료)가 인터넷에서 가사를 찾아 Verse/Chorus 로 나눠 줍니다.
-    처음 한 번 무료 키가 필요합니다 (Google 계정으로 1분, 카드 등록 없음). 하루 무료 사용량 안에서 무료입니다.<br>
-    <button class="wide primary" id="aiSetup">🔑 무료 AI 키 설정하기 ${getAiKey() ? "(설정됨 ✅)" : ""}</button>
-    · AI 가 가끔 저작권 때문에 가사를 안 보여주거나 틀릴 수 있습니다. 그럴 땐 구글 검색 → 붙여넣기를 쓰세요.</p>
+    <h3>📖 말씀 본문</h3>
+    <p>구절만 넣고 [본문 자동으로 채우기]. 개역개정은 성경 파일을 폰에 한 번 넣으면 인터넷 없이 자동입니다.<br>
+    (선택) 무료 AI 키를 넣으면 저장 안 된 본문도 AI 가 찾아 줍니다.<br>
+    <button class="wide" id="aiSetup">🔑 무료 AI 키 설정하기 ${getAiKey() ? "(설정됨 ✅)" : ""}</button></p>
     <h3>📱 홈 화면에 앱으로 설치</h3>
     <p><b>안드로이드(크롬/삼성 인터넷)</b>: 메뉴 ⋮ → <b>홈 화면에 추가</b> 또는 <b>앱 설치</b><br>
     <b>아이폰(사파리)</b>: 아래 공유 버튼 □↑ → <b>홈 화면에 추가</b></p>
     <h3>🎵 찬양 가사 넣기 (모두 무료)</h3>
-    <p>1. [+ 찬양] → 제목 입력 → <b>[🔍 가사 검색]</b> (구글이 열려요)<br>
-    2. 가사를 길게 눌러 복사 → 돌아와서 <b>[📋 붙여넣기 + 자동 나누기]</b><br>
-    3. 반복되는 부분은 Chorus, 나머지는 Verse 로 나뉩니다. 반복이 없으면 쭉 이어지는 가사로 둡니다.<br>
-    · <b>[🎼 악보 사진]</b>: 카메라로 찍으면 가사를 읽어요. 띄어쓰기·몇 글자는 꼭 고쳐 주세요.<br>
+    <p>1. [+ 찬양] → 제목 입력 (보관함에 있는 곡이면 목록에서 고르면 가사까지 들어가요)<br>
+    2. 없는 곡: <b>[🔍 가사 검색]</b> (구글) → 가사를 길게 눌러 복사 → 돌아와서 <b>[📋 붙여넣기]</b><br>
     · 가사 칸에서 <code>[Verse 1]</code> <code>[Chorus]</code> <code>[Bridge]</code> 로 직접 나눌 수도 있어요. 파트 안의 빈 줄 = 슬라이드 넘김.<br>
     · 순서 칸: <code>V1 C V2 C B C</code> 처럼 쓰면 그 순서로 반복됩니다.</p>
     <h3>💾 메모장 파일</h3>
@@ -499,7 +496,7 @@ function renderHelp(main) {
     <h3>📄 PPT</h3>
     <p>[▶ PPT 만들기] 를 누르면 공유 창이 뜹니다. <b>파일에 저장</b>, 카카오톡으로 보내기, PowerPoint 앱으로 열기를 고르세요.
     휴대폰 PowerPoint 앱에서는 구역(섹션)이 안 보일 수 있지만 PC PowerPoint 에서는 보입니다.</p>
-    <p class="hint">모든 데이터는 이 휴대폰 안에만 저장됩니다. 인터넷 없이도 동작합니다 (악보 사진 읽기는 처음 한 번 인터넷 필요).</p>
+    <p class="hint">모든 데이터는 이 휴대폰 안에만 저장됩니다. 인터넷 없이도 동작합니다.</p>
   </div>`;
 }
 
@@ -552,12 +549,9 @@ function renderEditor() {
         : `<label class="field"><span>${label}</span><input data-f="${k}" value="${esc(it.data[k])}" placeholder="${esc(ph)}"></label>`).join("")}
       ${it.kind === "song" ? `
         <div class="grid3">
-          <button class="primary" data-a="ai">🤖 AI 가사 자동 채우기</button>
           <button class="primary" data-a="lib">📚 보관함에서 고르기</button>
           <button class="primary" data-a="search">🔍 가사 검색</button>
-          <button class="primary" data-a="paste">📋 붙여넣기+나누기</button>
-          <button data-a="auto">⚡ 자동 나누기</button>
-          <button data-a="sheet">🎼 악보 사진</button>
+          <button class="primary" data-a="paste">📋 붙여넣기</button>
           <button data-a="open">📂 txt 열기</button>
           <button data-a="keep">💾 보관함 저장</button>
           <button data-a="txt">⬇ txt 파일</button>
@@ -656,32 +650,9 @@ function keepInLibrary(it, quiet = false) {
 
 const confirmReplace = (it) => !(it.data.body || "").trim() || confirm("지금 가사를 새 가사로 바꿀까요?");
 
-async function autoSplit(it, raw) {
-  const clean = L.cleanPastedLyrics(raw);
-  const song = S.itemToSong(it);
-  if (getAiKey()) {   // AI 가 곡 구조를 보고 Verse/Chorus/Bridge 를 정함
-    busy("AI 가 Verse / Chorus / Bridge 를 나누는 중...");
-    try {
-      const G = await import("./gemini.js");
-      const s = await G.splitLyrics(clean, it.data.title.trim());
-      busy();
-      song.sections = s.sections; song.order = s.order;
-      applySong(it, song, true);
-      toast("AI 가 파트를 나눴습니다. 틀린 곳은 직접 고쳐 주세요.", 4500);
-      return;
-    } catch (e) { busy(); toast(`AI 나누기 실패 (${e.message}) — 간단한 규칙으로 나눴습니다.`, 5000); }
-  }
-  const { sections, order } = L.autoStructure(clean);
-  song.sections = sections;
-  song.order = order.length ? order : song.order;
-  applySong(it, song, true);
-  if (!getAiKey()) toast("간단한 규칙으로 나눴습니다. [도움말]에서 무료 AI 키를 넣으면 AI 가 곡 구조에 맞게 나눠 줍니다.", 6000);
-}
-
 async function editorAction(it, a) {
   const d = it.data;
   if (a === "lib") return pickFromLibrary(it);
-  if (a === "ai") return aiFill(it);
   if (a === "bibleAuto") {
     const tr = (d.translation || "").trim() || load("cppt.translation", "개역개정");
     const r = await autoScripture(d.reference, tr);
@@ -712,29 +683,15 @@ async function editorAction(it, a) {
   if (a === "search") {
     if (!d.title.trim()) return toast("먼저 찬양 제목을 입력해 주세요.");
     webSearch(`${d.title} ${d.artist || ""} 가사`);
-    toast("가사를 길게 눌러 복사한 뒤, 돌아와서 [붙여넣기 + 자동 나누기] 를 누르세요.", 6000);
+    toast("가사를 길게 눌러 복사한 뒤, 돌아와서 [📋 붙여넣기] 를 누르세요.", 6000);
   } else if (a === "paste") {
     let text = "";
     try { text = await navigator.clipboard.readText(); } catch { /* 권한 없음 */ }
-    if (!text.trim()) return toast("복사된 글자를 읽지 못했어요. 가사 칸을 길게 눌러 붙여넣은 뒤 [자동 나누기] 를 누르세요.", 6000);
+    if (!text.trim()) return toast("복사된 글자를 읽지 못했어요. 가사 칸을 길게 눌러 직접 붙여넣어 주세요.", 6000);
     if (!confirmReplace(it)) return;
-    await autoSplit(it, text);
-    if (d.title.trim()) keepInLibrary(it, true);
-  } else if (a === "auto") {
-    if (!(d.body || "").trim()) return toast("가사 칸에 가사를 먼저 넣어 주세요.");
-    await autoSplit(it, d.body);
-  } else if (a === "sheet") {
-    const files = await pickFiles("image/*", true);
-    if (!files.length || !confirmReplace(it)) return;
-    try {
-      await ensureTesseract();
-      const { readSheetMusic } = await import("./ocr.js");
-      busy("악보 읽는 중...");
-      const song = await readSheetMusic(files, d.title.trim(), (m) => busy(m));
-      busy();
-      applySong(it, song, !!d.title.trim());
-      alert("악보에서 가사를 읽었습니다.\n\n⚠ 무료 글자 인식이라 띄어쓰기가 없고 몇 글자는 틀릴 수 있어요. 꼭 확인하고 고쳐 주세요.");
-    } catch (e) { busy(); alert(e.message || String(e)); }
+    d.body = L.cleanPastedLyrics(text);
+    persist(); renderEditor();
+    toast("붙여넣었습니다. 파트는 [Verse 1] [Chorus] 처럼 직접 나눠 주세요. 빈 줄 = 슬라이드 넘김.", 6000);
   } else if (a === "open") {
     const [f] = await pickFiles(".txt,text/plain");
     if (!f || !confirmReplace(it)) return;
@@ -760,19 +717,6 @@ async function editorAction(it, a) {
     persist(); renderEditor();
     toast(`${B.refLabel(ref.book, vs)} · ${vs.length}절을 넣었습니다.${missingNote(ref, vs)}`, 6000);
   } else if (a === "sunday") { d.date = nextSunday(); persist(); renderEditor(); }
-}
-
-let tessLoading = null;
-function ensureTesseract() {
-  if (globalThis.Tesseract) return Promise.resolve();
-  if (!tessLoading) tessLoading = new Promise((res, rej) => {
-    const s = document.createElement("script");
-    s.src = "vendor/tesseract.min.js";
-    s.onload = res;
-    s.onerror = () => { tessLoading = null; rej(new Error("글자 인식 기능을 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.")); };
-    document.head.appendChild(s);
-  });
-  return tessLoading;
 }
 
 // ------------------------------------------------------------------ 우리 교회 틀
@@ -1108,84 +1052,44 @@ function aiKeyDialog(then) {
   };
 }
 
-async function aiFill(it) {
-  const d = it.data;
-  if (!d.title.trim()) return toast("먼저 찬양 제목을 입력해 주세요.");
-  const mine = findInLibrary(d.title);
-  if (mine) {   // 우리가 모아 둔 가사가 있으면 그것을 먼저
-    if (!confirmReplace(it)) return;
-    applySong(it, mine, false);
-    return toast(`가사 보관함의 '${mine.title}' 을(를) 넣었습니다.`);
-  }
-  if (!getAiKey()) return aiKeyDialog(() => aiFill(it));
-  if (!confirmReplace(it)) return;
-  const G = await import("./gemini.js");
-  busy(`'${d.title}' 가사를 AI 가 찾는 중... (10~30초)`);
-  try {
-    const song = await G.findLyrics(d.title.trim(), (d.artist || "").trim());
-    busy();
-    applySong(it, song, true);
-    keepInLibrary(it, true);
-    alert("가사를 채웠습니다.\n\n⚠ AI 결과는 틀릴 수 있으니 한 번 확인해 주세요.");
-  } catch (e) {
-    busy();
-    if (e.kind === "key") return aiKeyDialog(() => aiFill(it));
-    if (confirm(`${e.message}\n\n구글에서 가사 검색을 열까요? (복사 → [붙여넣기+나누기])`)) webSearch(`${d.title} ${d.artist || ""} 가사`);
-  }
-}
-
-function aiBulk() {
+// 이번 주 찬양 제목을 한 번에: 보관함에 있는 곡은 가사까지, 없는 곡은 제목만 넣어 둠
+function bulkSongs() {
   const songItems = state.service.items.filter((it) => it.kind === "song");
   const box = document.createElement("div");
   box.className = "pick";
   box.innerHTML = `<div>
-    <h3>🤖 이번 주 찬양 한 번에 채우기</h3>
+    <h3>📚 이번 주 찬양 한 번에 넣기</h3>
     <p class="hint">한 줄에 한 곡씩 <b>제목 / 찬양팀</b> 으로 적으세요. 예배 순서의 🎵 찬양 자리에 <b>위에서부터 차례로</b> 들어갑니다${songItems.length ? ` (지금 ${songItems.length}자리)` : ""}. 자리가 모자라면 뒤에 추가합니다.</p>
-    <p class="hint">가사 보관함에 있는 곡은 보관함 가사를 그대로 쓰고, 없는 곡만 AI 가 찾습니다.</p>
+    <p class="hint">가사 보관함에 있는 곡은 가사까지 들어가고, 없는 곡은 제목만 들어갑니다 (그 곡을 눌러 가사 검색 → 붙여넣기).</p>
     <textarea id="bulkIn" rows="8" placeholder="나는 예배자 입니다 / 어노인팅\n새 힘 얻으리 / 마커스\n믿음 따라 / 제이어스"></textarea>
-    <div class="row2"><button class="primary" id="bulkGo">AI 로 채우기</button><button id="bulkClose">닫기</button></div></div>`;
+    <div class="row2"><button class="primary" id="bulkGo">넣기</button><button id="bulkClose">닫기</button></div></div>`;
   document.body.appendChild(box);
   box.querySelector("#bulkClose").onclick = () => box.remove();
-  box.querySelector("#bulkGo").onclick = async () => {
+  box.querySelector("#bulkGo").onclick = () => {
     const lines = box.querySelector("#bulkIn").value.split("\n").map((l) => l.trim()).filter(Boolean);
     if (!lines.length) return;
     box.remove();
-    const G = await import("./gemini.js");
-    const ok = [], fail = [];
+    const ok = [], empty = [];
     let slot = 0;
-    for (let i = 0; i < lines.length; i++) {
-      const [title, team = ""] = lines[i].split(/\s*[\/|]\s*|\s+-\s+/);
-      busy(`(${i + 1}/${lines.length}) '${title}' 찾는 중...`);
-      try {
-        let song = findInLibrary(title);
-        if (!song) {
-          if (!getAiKey()) throw Object.assign(new Error("보관함에 없음 · AI 키를 넣으면 찾아 드려요"), { kind: "nokey" });
-          song = await G.findLyrics(title, team);
-          if (i < lines.length - 1) await new Promise((r) => setTimeout(r, 1500));   // 무료 사용량 보호
-        }
-        const items = state.service.items;
-        const slots = items.filter((it) => it.kind === "song");
-        let it = slots[slot++];
-        if (it) applySongSilently(it, song);
-        else {
-          it = { id: uid(), kind: "song", data: songData(song, title) };
-          const lastSong = items.lastIndexOf(slots[slots.length - 1]);
-          if (lastSong >= 0) items.splice(lastSong + 1, 0, it); else items.push(it);
-        }
-        state.library[song.title] = L.songToText(song);
-        ok.push(song.title);
-      } catch (e) {
-        if (e.kind === "key" || e.kind === "limit") { fail.push(`${title} (${e.message})`); break; }
-        fail.push(`${title} (${e.message})`);
-        slot++;
+    for (const line of lines) {
+      const [title, team = ""] = line.split(/\s*[\/|]\s*|\s+-\s+/);
+      const song = findInLibrary(title) || { title, artist: team, key: "", order: [], sections: [] };
+      if (!song.artist && team) song.artist = team;
+      const items = state.service.items;
+      const slots = items.filter((it) => it.kind === "song");
+      let it = slots[slot++];
+      if (it) applySongSilently(it, song);
+      else {
+        it = { id: uid(), kind: "song", data: songData(song, title) };
+        const lastSong = items.lastIndexOf(slots[slots.length - 1]);
+        if (lastSong >= 0) items.splice(lastSong + 1, 0, it); else items.push(it);
       }
-      persist();
+      (song.sections.length ? ok : empty).push(song.title);
     }
-    busy();
+    persist();
     render();
-    alert(`완료: ${ok.length}곡${ok.length ? "\n· " + ok.join("\n· ") : ""}` +
-      (fail.length ? `\n\n못 찾은 곡 (구글 검색 → 붙여넣기로 넣어 주세요):\n· ${fail.join("\n· ")}` : "") +
-      "\n\n⚠ AI 결과는 틀릴 수 있으니 PPT 만들기 전에 한 번 확인해 주세요.");
+    alert(`보관함 가사로 채운 곡: ${ok.length}곡${ok.length ? "\n· " + ok.join("\n· ") : ""}` +
+      (empty.length ? `\n\n제목만 넣은 곡 (눌러서 가사 검색 → 붙여넣기):\n· ${empty.join("\n· ")}` : ""));
   };
 }
 
