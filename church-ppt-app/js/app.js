@@ -411,10 +411,10 @@ function renderDesign(main) {
   drawPv();
   $("#tplPick").onclick = pickTemplate;
   $("#tplClear").onclick = async () => {
-    if (!confirm("교회 PPT 틀을 지울까요? (예배 순서의 📌 항목도 함께 빠집니다)")) return;
+    if (!confirm("교회 PPT 틀을 지울까요?\n지금 예배 순서도 모두 비워집니다. (가사 보관함은 그대로)\n\n다음에 [목민 청년부 PPT 만들기] 를 누르면 기본 목민 틀로 새로 시작합니다.")) return;
     (await tplModule()).clearTemplate();
     Object.assign(tpl, { name: "", data: null, analysis: null });
-    state.service.items = state.service.items.filter((it) => it.kind !== "fixed");
+    state.service.items = [];
     persist(); render();
   };
   $("#fontDl").onclick = async () => {
@@ -691,8 +691,11 @@ async function pickTemplate() {
     state.design = nd;
     busy();
     const songs = analysis.blocks.filter((b) => b.kind === "song").length;
-    const fixed = analysis.blocks.filter((b) => b.kind === "fixed").length;
-    if (confirm(`틀을 저장했습니다.\n\n· 그대로 쓰는 부분: ${fixed}개 (${analysis.blocks.filter((b) => b.kind === "fixed").map((b) => b.name).join(", ")})\n· 찬양: ${songs}곡\n\n지금 예배 순서를 이 틀의 순서로 새로 만들까요?`)) resetServiceFromTpl(true);
+    const fixedNames = analysis.blocks.filter((b) => b.kind === "fixed").map((b) => b.name);
+    // 예전 것은 모두 지우고 새 틀 그대로 새로 시작 (가사 보관함은 그대로)
+    const T2 = await tplModule();
+    state.service.items = T2.serviceFromTemplate(analysis, uid);
+    alert(`새 틀로 바꿨습니다.\n\n· 그대로 쓰는 부분: ${fixedNames.length}개 (${fixedNames.join(", ")})\n· 찬양: ${songs}곡\n\n예전 예배 순서는 지우고 새 틀 그대로 새로 만들었습니다. (가사 보관함은 그대로)`);
     // 틀 안의 찬양도 보관함에 넣어 둔다
     for (const b of analysis.blocks) if (b.kind === "song" && b.song && !state.library[b.song.title]) state.library[b.song.title] = L.songToText(b.song);
     persist(); render();
@@ -1046,10 +1049,23 @@ async function fitServiceToChurch() {
   const frame = T.serviceFromTemplate(tpl.analysis, uid);
   const mySongs = state.service.items.filter((it) => it.kind === "song" && S.itemToSong(it).sections.length);
   const slots = frame.filter((it) => it.kind === "song");
-  mySongs.forEach((s, i) => {
-    if (slots[i]) slots[i].data = { ...s.data, tplLead: slots[i].data.tplLead, tplClosing: slots[i].data.tplClosing };
-    else { const last = frame.lastIndexOf(slots[slots.length - 1]); frame.splice(last + 1 + (i - slots.length), 0, s); }
-  });
+  const hasLead = (it) => !!(it.data.tplLead || []).length;
+  const free = new Set(slots);
+  const put = (slot, song) => { free.delete(slot); slot.data = { ...song.data, tplLead: slot.data.tplLead, tplClosing: slot.data.tplClosing }; };
+  // 봉헌 카드가 붙은 곡(예전 틀에서 온 곡)은 새 틀의 봉헌 자리로, 나머지는 위에서부터 차례로
+  const rest = [];
+  for (const song of mySongs) {
+    const lead = hasLead(song) && slots.find((x) => free.has(x) && hasLead(x));
+    if (lead) put(lead, song); else rest.push(song);
+  }
+  let extra = 0;
+  for (const song of rest) {
+    const slot = slots.find((x) => free.has(x));
+    if (slot) { put(slot, song); continue; }
+    const { tplLead, tplClosing, ...data } = song.data;   // 예전 틀의 슬라이드 번호는 버림
+    const last = frame.lastIndexOf(slots[slots.length - 1]);
+    frame.splice(last + 1 + extra++, 0, { ...song, data });
+  }
   state.service.items = frame;
   persist();
 }
