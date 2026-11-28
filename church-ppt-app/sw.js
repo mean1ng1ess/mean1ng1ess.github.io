@@ -1,5 +1,5 @@
 // 오프라인용: 앱 파일을 저장해 두고, 인터넷이 없어도 열리게 한다.
-const VERSION = "cppt-v19";
+const VERSION = "cppt-v20";
 const BIBLE = "cppt-bible-1";   // 성경 본문은 앱이 바뀌어도 다시 받지 않도록 따로 보관
 const APP = ["./", "index.html", "app.css", "manifest.webmanifest", "js/app.js", "js/lyrics.js", "js/slides.js",
   "js/pptx.js", "js/preview.js", "js/pptimport.js", "js/template.js", "js/gemini.js", "js/bible.js", "vendor/jszip.min.js", "fonts/NanumSquareNeoTTF-bRg.woff2", "fonts/NanumSquareNeoTTF-cBd.woff2", "vendor/pptxgen.bundle.js",
